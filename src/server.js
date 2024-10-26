@@ -9,7 +9,7 @@ import ProcessServer from './process/index.js';
 
 let socketId = 0;
 export default class RPCServer extends EventEmitter {
-  constructor() { super(); return (async () => {
+  constructor() { super();
     this.onConnection = this.onConnection.bind(this);
     this.onMessage = this.onMessage.bind(this);
     this.onClose = this.onClose.bind(this);
@@ -20,13 +20,13 @@ export default class RPCServer extends EventEmitter {
       close: this.onClose
     };
 
-    this.ipc = await new IPCServer(handlers);
-    this.ws = await new WSServer(handlers);
+    this.ipc = new IPCServer(handlers);
+    this.ws = new WSServer(handlers);
 
-    if (!process.argv.includes('--no-process-scanning') && !process.env.ARRPC_NO_PROCESS_SCANNING) this.process = await new ProcessServer(handlers);
+    if (!process.argv.includes('--no-process-scanning') && !process.env.ARRPC_NO_PROCESS_SCANNING) new ProcessServer(handlers);
 
     return this;
-  })(); }
+  }
 
   onConnection(socket) {
     socket.send({

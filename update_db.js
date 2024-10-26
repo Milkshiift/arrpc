@@ -1,30 +1,41 @@
-#!/usr/bin/env node
-import { createWriteStream, readFileSync } from 'fs';
+import { createWriteStream } from 'fs';
 import { get } from 'https';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'node:module';
+import {compressJson, readCompressedJson} from "./src/process/compression.js";
 
-const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const path = join(__dirname, 'src', 'process', 'detectable.json');
+const compressedPath = path + '.mpk.br';
 
-const current = require(path);
+const current = await readCompressedJson(compressedPath);
 
-const file = createWriteStream(path);
+let jsonData = '';
+
 get('https://discord.com/api/v9/applications/detectable', res => {
-  res.pipe(file);
+  res.on('data', chunk => {
+    jsonData += chunk;
+  });
 
-  file.on('finish', () => {
-    file.close();
+  res.on('end', () => {
+    const updated = JSON.parse(jsonData);
+    const compressed = compressJson(updated, compressedPath);
+    const compressedFile = createWriteStream(compressedPath);
+    compressedFile.write(compressed);
+    compressedFile.end();
 
-    const updated = require(path);
-    console.log('Updated detectable DB');
-    console.log(`${current.length} -> ${updated.length} games (+${updated.length - current.length})`);
+    compressedFile.on('finish', () => {
+      compressedFile.close();
 
-    const oldNames = current.map(x => x.name);
-    const newNames = updated.map(x => x.name);
-    console.log(newNames.filter(x => !oldNames.includes(x)));
-  })
+      const originalSize = Buffer.from(JSON.stringify(updated)).length;
+      const finalSize = compressed.length;
+
+      console.log('Updated detectable DB');
+      console.log(`${current.length} -> ${updated.length} games (+${updated.length - current.length})`);
+      console.log('Compression stats:');
+      console.log(`Original JSON: ${originalSize} bytes`);
+      console.log(`Compressed MessagePack (Brotli): ${finalSize} bytes (${((originalSize - finalSize) / originalSize * 100).toFixed(2)}% smaller)`);
+    });
+  });
 });
