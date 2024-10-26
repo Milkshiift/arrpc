@@ -1,17 +1,7 @@
-/*
-  Some insane compression magic (95% compression!)
-*/
-
-import {readFile} from 'fs/promises';
-import {dirname, join} from 'path';
-import {fileURLToPath} from 'url';
 import {Packr} from 'msgpackr';
 import * as zlib from "node:zlib";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const path = join(__dirname, 'detectable.json');
-const compressedPath = path + '.mpk.br';
+import {data} from "./detectable.js";
+import base122 from "../base122.js";
 
 const keyMap = {
     'executables': 'e',
@@ -37,10 +27,7 @@ function compressObject(obj) {
         const newKey = keyMap[key] || key;
         let newValue;
 
-        if (typeof value === 'string') {
-            // Dynamic substring mapping
-            newValue = dictionaryEncode(value);
-        } else if (Array.isArray(value)) {
+        if (Array.isArray(value)) {
             newValue = value.map(v => compressObject(v));
         } else if (typeof value === 'object' && value !== null) {
             newValue = compressObject(value);
@@ -63,9 +50,7 @@ function decompressObject(obj) {
         const newKey = Object.keys(keyMap).find(k => keyMap[k] === key) || key;
         let newValue;
 
-        if (typeof value === 'string') {
-            newValue = dictionaryDecode(value);
-        } else if (Array.isArray(value)) {
+        if (Array.isArray(value)) {
             newValue = value.map(v => decompressObject(v));
         } else if (typeof value === 'object' && value !== null) {
             newValue = decompressObject(value);
@@ -78,28 +63,6 @@ function decompressObject(obj) {
     }, {});
 }
 
-// Dynamic substring encoding
-const substringDict = {};
-function dictionaryEncode(str) {
-    const keys = Object.keys(substringDict);
-    const match = keys.find(sub => str.includes(sub));
-
-    if (match) return str.replace(new RegExp(match, 'g'), substringDict[match]);
-
-    if (str.length > 5) { // Only map long substrings to shorten storage
-        const token = `_@${keys.length}`;
-        substringDict[str] = token;
-        return token;
-    }
-    return str;
-}
-
-function dictionaryDecode(str) {
-    const entries = Object.entries(substringDict);
-    const match = entries.find(([key, token]) => str.includes(token));
-    return match ? str.replace(new RegExp(match[1], 'g'), match[0]) : str;
-}
-
 // Configure Packr for maximum compression
 const encoder = new Packr({
     structuredClone: false,
@@ -108,10 +71,10 @@ const encoder = new Packr({
     useFloat32: 2,
 });
 
-export const readCompressedJson = async (filepath = compressedPath) => {
+export const readCompressedJson = async () => {
     try {
-        const compressed = await readFile(filepath);
-        const decompressed = encoder.unpack(zlib.brotliDecompressSync(compressed));
+        const decoded = base122.decode(data);
+        const decompressed = encoder.unpack(zlib.brotliDecompressSync(decoded));
         return decompressObject(decompressed);
     } catch (error) {
         console.log("Failed to read compressed JSON", error);
@@ -119,6 +82,7 @@ export const readCompressedJson = async (filepath = compressedPath) => {
     }
 };
 
+// ~85% compression ratio generally
 export const compressJson = (obj) => {
     try {
         const compressed = encoder.pack(compressObject(obj));
