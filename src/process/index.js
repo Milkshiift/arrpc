@@ -41,7 +41,7 @@ export default class ProcessServer {
   }
 
   async _scan() {
-    const startTime = performance.now();
+    //const startTime = performance.now();
 
     try {
       const processes = await Native.getProcesses();
@@ -60,7 +60,7 @@ export default class ProcessServer {
 
       this._cleanupLostGames(activeIds);
 
-      this._logScanPerformance(startTime);
+      //this._logScanPerformance(startTime);
     } catch (error) {
       log('Scan error:', error);
     }
@@ -89,9 +89,6 @@ export default class ProcessServer {
 
   _matchExecutable(executables, possiblePaths, args) {
     return executables?.some(x => {
-      // Skip launcher executables
-      if (x.is_launcher) return false;
-
       // Advanced path matching
       const pathMatches = x.name[0] === '>'
           ? x.name.substring(1) === possiblePaths[0]
