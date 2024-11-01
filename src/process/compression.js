@@ -22,13 +22,10 @@ const OS_MAP = new Map([
  * 3. Handling nested objects and arrays
  */
 function transformObject(obj, reverse = false) {
-    // Handle non-object types
     if (!obj || typeof obj !== 'object') return obj;
 
-    // Create key and value transformation functions
     const transformKey = key => {
-        // Skip 'hook' and 'is_launcher' keys entirely
-        if (key === 'hook' || key === 'is_launcher') return null;
+        if (key === 'hook' || key === 'overlay' || key === 'overlay_compatibility_hook' || key === 'aliases' || key === 'is_launcher') return null;
 
         return reverse
             ? [...KEY_MAP.entries()].find(([_, v]) => v === key)?.[0]
@@ -41,22 +38,18 @@ function transformObject(obj, reverse = false) {
             : OS_MAP.get(value) || value;
     };
 
-    // Handle arrays by transforming each item
     if (Array.isArray(obj)) {
         return obj
             .map(item => transformObject(item, reverse))
-            // For executables, filter out those with is_launcher: true
             .filter(item =>
                 !reverse ||
                 !item.is_launcher
             );
     }
 
-    // Transform object keys and values
     return Object.keys(obj).reduce((acc, key) => {
         const newKey = transformKey(key);
 
-        // Skip null keys (hook, is_launcher)
         if (newKey === null) return acc;
 
         const value = obj[key];
