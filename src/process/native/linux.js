@@ -21,13 +21,15 @@ export const getProcesses = async () => {
               )
             ]);
 
-            const parts = cmdlineContent
-                .split('\0')
-                .filter(part => part.trim() !== '');
+            // ignore suspended processes
+            try {
+              const status = await readFile(`/proc/${pid}/status`, 'utf8');
+              if (status.includes('State:\tT')) return null;
+            } catch (err) {}
 
-            return parts.length
-                ? [pid, parts[0], parts.slice(1)]
-                : null;
+            const parts = cmdlineContent.split('\0').filter(part => part.trim() !== '');
+
+            return parts.length ? [pid, parts[0], parts.slice(1)] : null;
           } catch {
             return null;
           }
