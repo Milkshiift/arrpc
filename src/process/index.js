@@ -1,6 +1,5 @@
 import { readCompressedJson } from "./compression.js";
 
-// Optimize color logging to reduce function call overhead
 const rgb = (r, g, b) => (msg) => `\x1b[38;2;${r};${g};${b}m${msg}\x1b[0m`;
 const logColor = {
   arRPC: rgb(88, 101, 242)('arRPC'),
@@ -22,6 +21,9 @@ export default class ProcessServer {
     this.timestamps = {};
     this.names = {};
     this.pids = {};
+
+    // Process Cache
+    this.processCache = new Map();
 
     // Use arrow function to preserve 'this' context
     this.scan = () => this._scan();
@@ -47,7 +49,18 @@ export default class ProcessServer {
       const processes = await Native.getProcesses();
       const activeIds = new Set();
 
-      for (const [pid, path, args] of processes) {
+      // Filter processes using cache
+      const processesToScan = processes.filter(([pid, path]) => {
+        const cacheKey = `${pid}:${path}`;
+        if (this.processCache.has(cacheKey)) {
+          return false; // Skip cached processes
+        } else {
+          this.processCache.set(cacheKey, true); // Cache for next scan
+          return true; // Scan uncached processes
+        }
+      });
+
+      for (const [pid, path, args] of processesToScan) {
         const possiblePaths = this._generatePossiblePaths(path);
 
         for (const { executables, id, name } of DetectableDB) {
@@ -58,10 +71,20 @@ export default class ProcessServer {
       }
 
       this._cleanupLostGames(activeIds);
-
+      this._pruneCache(processes);
       this._logScanPerformance(startTime);
     } catch (error) {
       log('Scan error:', error);
+    }
+  }
+
+  // Remove stale entries from the cache
+  _pruneCache(currentProcesses) {
+    const currentProcessKeys = new Set(currentProcesses.map(([pid, path]) => `${pid}:${path}`));
+    for (const key of this.processCache.keys()) {
+      if (!currentProcessKeys.has(key)) {
+        this.processCache.delete(key);
+      }
     }
   }
 
@@ -156,8 +179,5 @@ export default class ProcessServer {
   _logScanPerformance(startTime) {
     const duration = (performance.now() - startTime).toFixed(2);
     log(`finished scan in ${duration}ms`);
-
-    // More efficient stdout writing
-    process.stdout.write(`\r${' '.repeat(100)}\r[${logColor.arRPC} > ${logColor.process}] scanned (took ${duration}ms)`);
   }
 }
