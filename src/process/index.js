@@ -41,14 +41,13 @@ export default class ProcessServer {
   }
 
   async _scan() {
-    //const startTime = performance.now();
+    const startTime = performance.now();
 
     try {
       const processes = await Native.getProcesses();
       const activeIds = new Set();
 
-      for (const [pid, _path, args] of processes) {
-        const path = _path.toLowerCase().replaceAll('\\', '/');
+      for (const [pid, path, args] of processes) {
         const possiblePaths = this._generatePossiblePaths(path);
 
         for (const { executables, id, name } of DetectableDB) {
@@ -60,18 +59,20 @@ export default class ProcessServer {
 
       this._cleanupLostGames(activeIds);
 
-      //this._logScanPerformance(startTime);
+      this._logScanPerformance(startTime);
     } catch (error) {
       log('Scan error:', error);
     }
   }
 
   _generatePossiblePaths(path) {
-    const splitPath = path.split('/');
-    const toCompare = [];
+    const splitPath = path.toLowerCase().replaceAll('\\', '/').split('/');
+    if ((/^[a-z]:$/.test(splitPath[0]) || splitPath[0] === "")) {
+      splitPath.shift(); // drop the first index if it's a drive letter or empty
+    }
 
-    // Generate base path variations
-    for (let i = 1; i < splitPath.length; i++) {
+    const toCompare = [];
+    for (let i = 0; i < splitPath.length; i++) {
       toCompare.push(splitPath.slice(-i).join('/'));
     }
 
