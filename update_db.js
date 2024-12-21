@@ -21,7 +21,7 @@ get('https://discord.com/api/v9/applications/detectable', res => {
   res.on('end', () => {
     const updated = JSON.parse(jsonData);
     const compressed = compressJson(updated, compressedPath);
-    const base = base122.encode(Buffer.from(compressed));
+    const base = base122.encode(compressed);
     const compressedFile = createWriteStream(compressedPath);
     compressedFile.write("export const data =\""+base+"\";");
     compressedFile.end();
@@ -37,7 +37,7 @@ get('https://discord.com/api/v9/applications/detectable', res => {
       console.log(`${current.length} -> ${updated.length} games (+${updated.length - current.length})`);
       console.log('Compression stats:');
       console.log(`Original JSON: ${originalSize} bytes`);
-      console.log(`Compressed MessagePack (Brotli): ${finalSize} bytes (${((originalSize - finalSize) / originalSize * 100).toFixed(2)}% smaller)`);
+      console.log(`Compressed Brotli: ${finalSize} bytes (${((originalSize - finalSize) / originalSize * 100).toFixed(2)}% smaller)`);
       console.log(`Final Base122: ${baseSize} bytes`);
     });
   });

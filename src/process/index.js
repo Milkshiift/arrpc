@@ -43,7 +43,7 @@ export default class ProcessServer {
   }
 
   async _scan() {
-    const startTime = performance.now();
+    //const startTime = performance.now();
 
     try {
       const processes = await Native.getProcesses();
@@ -63,16 +63,16 @@ export default class ProcessServer {
       for (const [pid, path, args] of processesToScan) {
         const possiblePaths = this._generatePossiblePaths(path);
 
-        for (const { executables, id, name } of DetectableDB) {
-          if (this._matchExecutable(executables, possiblePaths, args)) {
-            this._handleDetectedGame(id, name, pid, activeIds);
+        for (const { e, i, n } of DetectableDB) {
+          if (this._matchExecutable(e, possiblePaths, args)) {
+            this._handleDetectedGame(i, n, pid, activeIds);
           }
         }
       }
 
       this._cleanupLostGames(activeIds);
       this._pruneCache(processes);
-      this._logScanPerformance(startTime);
+      //this._logScanPerformance(startTime);
     } catch (error) {
       log('Scan error:', error);
     }
@@ -112,16 +112,10 @@ export default class ProcessServer {
   }
 
   _matchExecutable(executables, possiblePaths, args) {
-    return executables?.some(x => {
-      // Advanced path matching
-      const pathMatches = x.name[0] === '>'
-          ? x.name.substring(1) === possiblePaths[0]
-          : possiblePaths.some(path => x.name === path);
-
-      // Optional argument matching
-      const argsMatch = !x.arguments ||
-          (args && args.join(" ").includes(x.arguments));
-
+    if (!executables) return false;
+    return executables.n.some(name => {
+      const pathMatches = name[0] === '>' ? name.substring(1) === possiblePaths[0] : possiblePaths.some(path => name === path);
+      const argsMatch = !executables.a || (args && args.join(" ").includes(executables.a));
       return pathMatches && argsMatch;
     });
   }

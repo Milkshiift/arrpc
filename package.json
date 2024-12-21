@@ -19,7 +19,6 @@
   "homepage": "https://github.com/OpenAsar/arrpc#readme",
   "dependencies": {
     "bufferutil": "^4.0.8",
-    "msgpackr": "^1.11.2",
     "ws": "^8.18.0"
   },
   "type": "module",

@@ -1,95 +1,65 @@
-import { Packr } from 'msgpackr';
 import * as zlib from 'node:zlib';
-import { data } from './detectable.js';
+import {data} from './detectable.js';
 import base122 from '../base122.js';
 
-const KEY_MAP = new Map([
-    ['executables', 'e'],
-    ['name', 'n'],
-    ['os', 'o'],
-    ['id', 'i'],
-]);
+const KEY_MAP = {
+    executables: 'e',
+    arguments: 'a',
+    name: 'n',
+    id: 'i',
+};
 
-const OS_MAP = new Map([
-    ['win32', 1],
-    ['darwin', 2],
-]);
+const FILTERED_KEYS = ['hook', 'overlay', 'overlay_compatibility_hook', 'aliases', 'is_launcher', 'os'];
 
-/**
- * Recursively transform an object by:
- * 1. Mapping keys based on the provided key map
- * 2. Filtering out specific keys
- * 3. Handling nested objects and arrays
- */
-function transformObject(obj, reverse = false) {
-    if (!obj || typeof obj !== 'object') return obj;
-
-    const transformKey = key => {
-        if (key === 'hook' || key === 'overlay' || key === 'overlay_compatibility_hook' || key === 'aliases' || key === 'is_launcher') return null;
-
-        return reverse
-            ? [...KEY_MAP.entries()].find(([_, v]) => v === key)?.[0]
-            : KEY_MAP.get(key) || key;
+export function transformObject(all) {
+    const transformKey = (key) => {
+        if (FILTERED_KEYS.includes(key)) return null;
+        return KEY_MAP[key] || key;
     };
 
-    const transformValue = value => {
-        return reverse
-            ? [...OS_MAP.entries()].find(([_, v]) => v === value)?.[0]
-            : OS_MAP.get(value) || value;
-    };
+    for (const key in all) {
+        const game = all[key];
+        for (const key in game) {
+            const newKey = transformKey(key);
+            if (newKey !== null) game[newKey] = game[key];
+            delete game[key];
 
-    if (Array.isArray(obj)) {
-        return obj
-            .map(item => transformObject(item, reverse))
-            .filter(item =>
-                !reverse ||
-                !item.is_launcher
-            );
+            const prop = game[newKey];
+            if (Array.isArray(prop)) {
+                const execs = {
+                    n: prop.filter(item => item.os !== 'darwin').map(item => item.name)
+                };
+                const arg = prop[0].arguments;
+                if (arg) execs.a = arg;
+                game[newKey] = execs;
+            }
+        }
     }
 
-    return Object.keys(obj).reduce((acc, key) => {
-        const newKey = transformKey(key);
-
-        if (newKey === null) return acc;
-
-        const value = obj[key];
-        const newValue = transformObject(value, reverse);
-
-        acc[newKey] = transformValue(newValue);
-        return acc;
-    }, {});
+    return all;
 }
-
-// Configure Packr for maximum compression
-const encoder = new Packr({
-    structuredClone: false,
-    useRecords: true,
-    variableMapSize: false,
-    useFloat32: 2,
-});
 
 export const readCompressedJson = async () => {
     try {
         const decoded = base122.decode(data);
-        const decompressed = encoder.unpack(zlib.brotliDecompressSync(decoded));
-        return transformObject(decompressed, true);
+        return JSON.parse(zlib.brotliDecompressSync(decoded).toString());
     } catch (error) {
         console.error("Failed to read compressed JSON", error);
         return {};
     }
 };
 
-// ~85% compression ratio generally
+// ~74% compression ratio generally
 export const compressJson = (obj) => {
     try {
-        const compressed = encoder.pack(transformObject(obj));
-        return zlib.brotliCompressSync(compressed, {
+        const compressed = transformObject(obj);
+        return zlib.brotliCompressSync(JSON.stringify(compressed), {
             params: {
                 [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
             },
         });
     } catch (error) {
         console.error("Failed to write compressed JSON", error);
-        return {};
+        return undefined;
     }
 }
