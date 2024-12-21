@@ -60,11 +60,11 @@ export default class ProcessServer {
         }
       });
 
-      for (const [pid, path, args] of processesToScan) {
+      for (const [pid, path, args, _cwdPath = ''] of processesToScan) {
         const possiblePaths = this._generatePossiblePaths(path);
 
         for (const { e, i, n } of DetectableDB) {
-          if (this._matchExecutable(e, possiblePaths, args)) {
+          if (this._matchExecutable(e, possiblePaths, args, _cwdPath)) {
             this._handleDetectedGame(i, n, pid, activeIds);
           }
         }
@@ -95,7 +95,7 @@ export default class ProcessServer {
     }
 
     const toCompare = [];
-    for (let i = 0; i < splitPath.length; i++) {
+    for (let i = 0; i < splitPath.length || i === 1; i++) {
       toCompare.push(splitPath.slice(-i).join('/'));
     }
 
@@ -111,10 +111,10 @@ export default class ProcessServer {
     return variations;
   }
 
-  _matchExecutable(executables, possiblePaths, args) {
+  _matchExecutable(executables, possiblePaths, args, cwdPath) {
     if (!executables) return false;
     return executables.n.some(name => {
-      const pathMatches = name[0] === '>' ? name.substring(1) === possiblePaths[0] : possiblePaths.some(path => name === path);
+      const pathMatches = name[0] === '>' ? name.substring(1) === possiblePaths[0] : possiblePaths.some(path => name === path || `${cwdPath}/${path}`.includes(`/${name}`));
       const argsMatch = !executables.a || (args && args.join(" ").includes(executables.a));
       return pathMatches && argsMatch;
     });

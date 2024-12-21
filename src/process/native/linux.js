@@ -1,4 +1,4 @@
-import { readdir, readFile } from "fs/promises";
+import { readdir, readFile, readlink } from "fs/promises";
 
 export const getProcesses = async () => {
   try {
@@ -27,9 +27,14 @@ export const getProcesses = async () => {
               if (status.includes('State:\tT')) return null;
             } catch (err) {}
 
+            let cwdPath;
+            try {
+              cwdPath = await readlink(`/proc/${pid}/cwd`);
+            } catch (err) {}
+
             const parts = cmdlineContent.split('\0').filter(part => part.trim() !== '');
 
-            return parts.length ? [pid, parts[0], parts.slice(1)] : null;
+            return parts.length ? [pid, parts[0], parts.slice(1), cwdPath] : null;
           } catch {
             return null;
           }
