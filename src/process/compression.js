@@ -1,6 +1,6 @@
 import * as zlib from 'node:zlib';
 import {data} from './detectable.js';
-import base122 from '../base122.js';
+import {decode} from '../base122.js';
 
 const KEY_MAP = {
     executables: 'e',
@@ -41,7 +41,7 @@ export function transformObject(all) {
 
 export const readCompressedJson = async () => {
     try {
-        const decoded = base122.decode(data);
+        const decoded = decode(data);
         return JSON.parse(zlib.brotliDecompressSync(decoded).toString());
     } catch (error) {
         console.error("Failed to read compressed JSON", error);

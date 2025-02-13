@@ -171,7 +171,4 @@ function utf8DataToString(data) {
     return Buffer.from(data).toString('utf-8');
 }
 
-module.exports = {
-    encode: encode,
-    decode: decode
-};
+export { encode, decode };

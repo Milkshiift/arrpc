@@ -1,4 +1,9 @@
-import { readCompressedJson } from "./compression.js";
+import { Worker } from 'worker_threads';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const rgb = (r, g, b) => (msg) => `\x1b[38;2;${r};${g};${b}m${msg}\x1b[0m`;
 const logColor = {
@@ -6,9 +11,6 @@ const logColor = {
   process: rgb(237, 66, 69)('process')
 };
 const log = (...args) => console.log(`[${logColor.arRPC} > ${logColor.process}]`, ...args);
-
-// Preload and cache database to avoid repeated reads
-const DetectableDB = await readCompressedJson();
 
 import * as Natives from './native/index.js';
 const Native = Natives[process.platform];
@@ -22,147 +24,85 @@ export default class ProcessServer {
     this.names = {};
     this.pids = {};
 
-    // Process Cache
-    this.processCache = new Map();
+    this.initializeWorker();
+  }
 
-    // Use arrow function to preserve 'this' context
-    this.scan = () => this._scan();
+  initializeWorker() {
+    this.worker = new Worker(join(__dirname, 'scanner_worker.js'));
 
-    // Immediately start scanning and set up interval
-    this.scan();
-    this.intervalId = setInterval(this.scan, 5000);
+    this.worker.on('message', (message) => {
+      switch (message.type) {
+        case 'initialized':
+          // Start scanning once worker is initialized
+          this.startScanning();
+          break;
+        case 'scan_results':
+          this.handleScanResults(message.games);
+          break;
+        case 'error':
+          log('Scan error:', message.error);
+          break;
+      }
+    });
+
+    this.worker.on('error', (error) => {
+      log('Worker error:', error);
+    });
+
+    // Initialize the worker
+    this.worker.postMessage({ type: 'init' });
+  }
+
+  startScanning() {
+    // Start initial scan
+    this.worker.postMessage({ type: 'scan' });
+    
+    // Set up interval for subsequent scans
+    this.intervalId = setInterval(() => {
+      this.worker.postMessage({ type: 'scan' });
+    }, 5000);
 
     log('started');
   }
 
-  // Destructor-like method to clean up resources
-  destroy() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-    }
-  }
+  handleScanResults(games) {
+    const activeIds = new Set();
 
-  async _scan() {
-    //const startTime = performance.now();
+    for (const { id, name, pid } of games) {
+      this.names[id] = name;
+      this.pids[id] = pid;
+      activeIds.add(id);
 
-    try {
-      const processes = await Native.getProcesses();
-      const activeIds = new Set();
+      if (!this.timestamps[id]) {
+        log('detected game!', name);
+        this.timestamps[id] = Date.now();
+      }
 
-      // Filter processes using cache
-      const processesToScan = processes.filter(([pid, path]) => {
-        const cacheKey = `${pid}:${path}`;
-        if (this.processCache.has(cacheKey)) {
-          return false; // Skip cached processes
-        } else {
-          this.processCache.set(cacheKey, true); // Cache for next scan
-          return true; // Scan uncached processes
+      // Send activity consistently
+      this.handlers.message({
+        socketId: id
+      }, {
+        cmd: 'SET_ACTIVITY',
+        args: {
+          activity: {
+            application_id: id,
+            name,
+            timestamps: {
+              start: this.timestamps[id]
+            }
+          },
+          pid
         }
       });
-
-      for (const [pid, path, args, _cwdPath = ''] of processesToScan) {
-        const possiblePaths = this._generatePossiblePaths(path);
-
-        for (const { e, i, n } of DetectableDB) {
-          if (this._matchExecutable(e, possiblePaths, args, _cwdPath)) {
-            this._handleDetectedGame(i, n, pid, activeIds);
-          }
-        }
-      }
-
-      this._cleanupLostGames(activeIds);
-      this._pruneCache(processes);
-      //this._logScanPerformance(startTime);
-    } catch (error) {
-      log('Scan error:', error);
-    }
-  }
-
-  // Remove stale entries from the cache
-  _pruneCache(currentProcesses) {
-    const currentProcessKeys = new Set(currentProcesses.map(([pid, path]) => `${pid}:${path}`));
-    for (const key of this.processCache.keys()) {
-      if (!currentProcessKeys.has(key)) {
-        this.processCache.delete(key);
-      }
-    }
-  }
-
-  _generatePossiblePaths(path) {
-    const splitPath = path.toLowerCase().replaceAll('\\', '/').split('/');
-    if ((/^[a-z]:$/.test(splitPath[0]) || splitPath[0] === "")) {
-      splitPath.shift(); // drop the first index if it's a drive letter or empty
     }
 
-    const toCompare = [];
-    for (let i = 0; i < splitPath.length || i === 1; i++) {
-      toCompare.push(splitPath.slice(-i).join('/'));
-    }
-
-    // Generate additional path variations to reduce false negatives
-    const variations = [...toCompare];
-    for (const p of toCompare) {
-      const modifiers = ['64', '.x64', 'x64', '_64'];
-      modifiers.forEach(mod => {
-        variations.push(p.replace(mod, ''));
-      });
-    }
-
-    return variations;
-  }
-
-  _matchExecutable(executables, possiblePaths, args, cwdPath) {
-    if (!executables) return false;
-    return executables.n.some(name => {
-      const pathMatches = name[0] === '>' ? name.substring(1) === possiblePaths[0] : possiblePaths.some(path => name === path || `${cwdPath}/${path}`.includes(`/${name}`));
-      const argsMatch = !executables.a || (args && args.join(" ").includes(executables.a));
-      return pathMatches && argsMatch;
-    });
-  }
-
-  _handleDetectedGame(id, name, pid, activeIds) {
-    this.names[id] = name;
-    this.pids[id] = pid;
-    activeIds.add(id);
-
-    if (!this.timestamps[id]) {
-      log('detected game!', name);
-      this.timestamps[id] = Date.now();
-    }
-
-    // Send activity consistently
-    this.handlers.message({
-      socketId: id
-    }, {
-      cmd: 'SET_ACTIVITY',
-      args: {
-        activity: {
-          application_id: id,
-          name,
-          timestamps: {
-            start: this.timestamps[id]
-          }
-        },
-        pid
-      }
-    });
+    this._cleanupLostGames(activeIds);
   }
 
   _cleanupLostGames(activeIds) {
     for (const id in this.timestamps) {
       if (!activeIds.has(id)) {
         log('lost game!', this.names[id]);
-
-        this.handlers.message({
-          socketId: id
-        }, {
-          cmd: 'SET_ACTIVITY',
-          args: {
-            activity: null,
-            pid: this.pids[id]
-          }
-        });
-
         delete this.timestamps[id];
         delete this.names[id];
         delete this.pids[id];
@@ -170,8 +110,13 @@ export default class ProcessServer {
     }
   }
 
-  _logScanPerformance(startTime) {
-    const duration = (performance.now() - startTime).toFixed(2);
-    log(`finished scan in ${duration}ms`);
+  // Destructor-like method to clean up resources
+  destroy() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+    if (this.worker) {
+      void this.worker.terminate();
+    }
   }
 }

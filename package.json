@@ -4,8 +4,8 @@
   "description": "Open Discord RPC server for atypical setups",
   "main": "src/server.js",
   "scripts": {
-    "start": "bun ./src/index.js",
-    "bundleRun": "bun build ./src/index.js --target node --minify --outdir build && bun run build/index.js"
+    "start": "node ./src/index.js",
+    "bundleRun": "bun build ./src/index.js --target node --minify --outdir build && node build/index.js"
   },
   "repository": {
     "type": "git",
