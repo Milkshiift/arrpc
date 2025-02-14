@@ -3,7 +3,8 @@ import {readFile, writeFile} from "node:fs/promises";
 const bundleResult = await Bun.build({
     minify: true,
     sourcemap: "none",
-    format: "esm",
+    // For some weird reason, when this is ESM, GoofCord's bundle errors with SyntaxError: Cannot use import statement outside a module (even though GoofCord uses ESM too)
+    format: "cjs",
     target: "node",
     entrypoints: ["./src/process/scannerWorker.js"],
     outdir: "build",
