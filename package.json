@@ -19,6 +19,7 @@
   "homepage": "https://github.com/OpenAsar/arrpc#readme",
   "dependencies": {
     "bufferutil": "^4.0.8",
+    "picocolors": "^1.1.1",
     "ws": "^8.18.0"
   },
   "type": "module",

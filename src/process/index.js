@@ -1,16 +1,11 @@
 import { Worker } from 'worker_threads';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { Logger } from '../utils/logger.js';
+const log = new Logger("process", "red").log;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const rgb = (r, g, b) => (msg) => `\x1b[38;2;${r};${g};${b}m${msg}\x1b[0m`;
-const logColor = {
-  arRPC: rgb(88, 101, 242)('arRPC'),
-  process: rgb(237, 66, 69)('process')
-};
-const log = (...args) => console.log(`[${logColor.arRPC} > ${logColor.process}]`, ...args);
 
 import * as Natives from './native/index.js';
 const Native = Natives[process.platform];
