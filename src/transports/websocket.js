@@ -1,4 +1,4 @@
-import {Logger} from '../utils/logger.js';
+import {Logger} from '../logger.js';
 const log = new Logger("websocket", "magentaBright").log;
 
 import { WebSocketServer } from 'ws';

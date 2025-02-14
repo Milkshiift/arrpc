@@ -1,5 +1,5 @@
-import {Logger} from './utils/logger.js';
-const log = new Logger("bridge", "green").log;
+import {Logger} from './logger.js';
+const log = new Logger("bridge", "cyan").log;
 
 import { WebSocketServer } from 'ws';
 

@@ -1,4 +1,4 @@
-import {Logger} from '../utils/logger.js';
+import {Logger} from '../logger.js';
 const log = new Logger("ipc", "yellow").log;
 
 import { join } from 'path';

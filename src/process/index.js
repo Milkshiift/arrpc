@@ -1,29 +1,27 @@
 import { Worker } from 'worker_threads';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { Logger } from '../utils/logger.js';
-const log = new Logger("process", "red").log;
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
+import { Logger } from '../logger.js';
 import * as Natives from './native/index.js';
+import {getDetectableDB} from "./downloader.js";
+import {workerCode} from "./scannerWorkerString.js";
+const log = new Logger("process", "red").log;
 const Native = Natives[process.platform];
 
 export default class ProcessServer {
-  constructor(handlers) {
+  constructor(handlers, detectablePath) {
     if (!Native) return;
 
+    this.detectablePath = detectablePath;
     this.handlers = handlers;
     this.timestamps = {};
     this.names = {};
     this.pids = {};
 
-    this.initializeWorker();
+    void this.initializeWorker();
   }
 
-  initializeWorker() {
-    this.worker = new Worker(join(__dirname, 'scanner_worker.js'));
+  async initializeWorker() {
+    // We make the worker from a string so arrpc can be used in bundled environments
+    this.worker = new Worker(workerCode, {eval: true});
 
     this.worker.on('message', (message) => {
       switch (message.type) {
@@ -43,7 +41,10 @@ export default class ProcessServer {
       log('Worker error:', error);
     });
 
-    this.worker.postMessage({ type: 'init' });
+    this.worker.postMessage({
+      type: 'init',
+      detectable: await getDetectableDB(this.detectablePath)
+    });
   }
 
   startScanning() {

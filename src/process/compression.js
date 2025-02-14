@@ -1,7 +1,3 @@
-import * as zlib from 'node:zlib';
-import {data} from './detectable.js';
-import {decode} from '../base122.js';
-
 const KEY_MAP = {
     executables: 'e',
     arguments: 'a',
@@ -37,29 +33,4 @@ export function transformObject(all) {
     }
 
     return all;
-}
-
-export const readCompressedJson = async () => {
-    try {
-        const decoded = decode(data);
-        return JSON.parse(zlib.brotliDecompressSync(decoded).toString());
-    } catch (error) {
-        console.error("Failed to read compressed JSON", error);
-        return {};
-    }
-};
-
-// ~74% compression ratio generally
-export const compressJson = (obj) => {
-    try {
-        const compressed = transformObject(obj);
-        return zlib.brotliCompressSync(JSON.stringify(compressed), {
-            params: {
-                [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-            },
-        });
-    } catch (error) {
-        console.error("Failed to write compressed JSON", error);
-        return undefined;
-    }
 }
