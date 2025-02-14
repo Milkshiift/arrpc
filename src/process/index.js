@@ -33,7 +33,6 @@ export default class ProcessServer {
     this.worker.on('message', (message) => {
       switch (message.type) {
         case 'initialized':
-          // Start scanning once worker is initialized
           this.startScanning();
           break;
         case 'scan_results':
@@ -49,15 +48,12 @@ export default class ProcessServer {
       log('Worker error:', error);
     });
 
-    // Initialize the worker
     this.worker.postMessage({ type: 'init' });
   }
 
   startScanning() {
-    // Start initial scan
     this.worker.postMessage({ type: 'scan' });
-    
-    // Set up interval for subsequent scans
+
     this.intervalId = setInterval(() => {
       this.worker.postMessage({ type: 'scan' });
     }, 5000);
@@ -78,7 +74,6 @@ export default class ProcessServer {
         this.timestamps[id] = Date.now();
       }
 
-      // Send activity consistently
       this.handlers.message({
         socketId: id
       }, {
@@ -110,7 +105,6 @@ export default class ProcessServer {
     }
   }
 
-  // Destructor-like method to clean up resources
   destroy() {
     if (this.intervalId) {
       clearInterval(this.intervalId);
