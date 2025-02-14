@@ -1,14 +1,12 @@
 import { Worker } from 'worker_threads';
 import { Logger } from '../logger.js';
-import * as Natives from './native/index.js';
 import {getDetectableDB} from "./downloader.js";
 import {workerCode} from "./scannerWorkerString.js";
 const log = new Logger("process", "red").log;
-const Native = Natives[process.platform];
 
 export default class ProcessServer {
   constructor(handlers, detectablePath) {
-    if (!Native) return;
+    if (!['win32', 'linux'].includes(process.platform)) return;
 
     this.detectablePath = detectablePath;
     this.handlers = handlers;
