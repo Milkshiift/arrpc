@@ -19,10 +19,10 @@
   "homepage": "https://github.com/OpenAsar/arrpc#readme",
   "dependencies": {
     "picocolors": "^1.1.1",
-    "ws": "^8.18.0"
+    "ws": "^8.18.1"
   },
   "optionalDependencies": {
-    "bufferutil": "^4.0.8"
+    "bufferutil": "^4.0.9"
   },
   "type": "module",
   "bin": {

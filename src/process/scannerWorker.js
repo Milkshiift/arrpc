@@ -58,8 +58,12 @@ async function scan() {
       const possiblePaths = _generatePossiblePaths(path);
 
       for (const { e, i, n } of DetectableDB) {
-        if (_matchExecutable(e, possiblePaths, args, _cwdPath)) {
-          detectedGames.add({ id: i, name: n, pid });
+        try {
+          if (_matchExecutable(e, possiblePaths, args, _cwdPath)) {
+            detectedGames.add({ id: i, name: n, pid });
+          }
+        } catch (error) {
+          //console.log(error)
         }
       }
     }

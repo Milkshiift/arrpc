@@ -17,8 +17,8 @@ export function transformObject(all) {
         return KEY_MAP[key] || key;
     };
 
-    for (const key in all) {
-        const game = all[key];
+    gameIter: for (const gameKey in all) {
+        const game = all[gameKey];
         for (const key in game) {
             const newKey = transformKey(key);
             if (newKey !== null) game[newKey] = game[key];
@@ -26,17 +26,21 @@ export function transformObject(all) {
 
             const prop = game[newKey];
             if (Array.isArray(prop)) {
+                if (prop.length < 1) {
+                    delete all[gameKey];
+                    continue gameIter;
+                }
                 const execs = {
                     n: prop.filter(item => item.os !== 'darwin').map(item => item.name)
                 };
-                const arg = prop[0].arguments;
+                const arg = prop[0]["arguments"];
                 if (arg) execs.a = arg;
                 game[newKey] = execs;
             }
         }
     }
 
-    return all;
+    return all.filter(Boolean);
 }
 
 export async function getDetectableDB(path) {
