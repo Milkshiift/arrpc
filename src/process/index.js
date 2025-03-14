@@ -4,6 +4,8 @@ import {getDetectableDB} from "./downloader.js";
 import {workerCode} from "./scannerWorkerString.js";
 const log = new Logger("process", "red").log;
 
+const DEBUG = false;
+
 export default class ProcessServer {
   constructor(handlers, detectablePath) {
     if (!['win32', 'linux'].includes(process.platform)) return;
@@ -27,7 +29,7 @@ export default class ProcessServer {
           this.startScanning();
           break;
         case 'scan_results':
-          this.handleScanResults(message.games);
+          this.handleScanResults(message.games, message.stats);
           break;
         case 'error':
           log('Scan error:', message.error);
@@ -55,8 +57,12 @@ export default class ProcessServer {
     log('started');
   }
 
-  handleScanResults(games) {
+  handleScanResults(games, stats) {
     const activeIds = new Set();
+
+    if (DEBUG && stats) {
+      log(`Scan completed in ${stats.scanTimeMs.toFixed(2)}ms, checked ${stats.processCount} processes, ${stats.matchesChecked} matches, found ${stats.detectedCount} games`);
+    }
 
     for (const { id, name, pid } of games) {
       this.names[id] = name;

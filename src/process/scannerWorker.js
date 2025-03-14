@@ -6,6 +6,9 @@ const getProcesses = process.platform === 'linux' ? getProcessesLinux : getProce
 let DetectableDB;
 
 function _generatePossiblePaths(path) {
+  if (!_generatePossiblePaths.cache) _generatePossiblePaths.cache = new Map();
+  if (_generatePossiblePaths.cache.has(path)) return _generatePossiblePaths.cache.get(path);
+
   const normalizedPath = path.toLowerCase();
 
   const splitPath = normalizedPath.replaceAll('\\', '/').split('/');
@@ -15,23 +18,28 @@ function _generatePossiblePaths(path) {
 
   const variations = [];
   const modifiers = ['64', '.x64', 'x64', '_64'];
-  
-  const maxLength = splitPath.length + 1;
-  variations.length = maxLength * (modifiers.length + 1);
-  let idx = 0;
 
   for (let i = 0; i < splitPath.length || i === 1; i++) {
     const basePath = splitPath.slice(-i).join('/');
-    variations[idx++] = basePath;
-    
+    if (!basePath) continue;
+
+    variations.push(basePath);
+
     for (const mod of modifiers) {
       if (basePath.includes(mod)) {
-        variations[idx++] = basePath.replace(mod, '');
+        variations.push(basePath.replace(mod, ''));
       }
     }
   }
 
-  return variations.filter(Boolean);
+  _generatePossiblePaths.cache.set(path, variations);
+  
+  if (_generatePossiblePaths.cache.size > 1000) {
+    const iterator = _generatePossiblePaths.cache.keys();
+    _generatePossiblePaths.cache.delete(iterator.next().value);
+  }
+  
+  return variations;
 }
 
 function _matchExecutable(executables, possiblePaths, args, cwdPath) {
@@ -50,14 +58,40 @@ function _matchExecutable(executables, possiblePaths, args, cwdPath) {
 }
 
 async function scan() {
+  const startTime = performance.now();
+  let processCount = 0;
+  
   try {
     const processes = await getProcesses();
+    processCount = processes.length;
     const detectedGames = new Set();
+    
+    const detectionMap = new Map();
+    for (const element of DetectableDB) {
+      if (element.e && element.e.n) {
+        for (const name of element.e.n) {
+          const key = name[0] === '>' ? name.substring(1) : name;
+          if (!detectionMap.has(key)) {
+            detectionMap.set(key, []);
+          }
+          detectionMap.get(key).push(element);
+        }
+      }
+    }
 
     for (const [pid, path, args, _cwdPath = ''] of processes) {
+      if (!path) continue; // Skip processes with no path
+      
       const possiblePaths = _generatePossiblePaths(path);
-
-      for (const element of DetectableDB) {
+      
+      const potentialMatches = new Set();
+      for (const possiblePath of possiblePaths) {
+        if (detectionMap.has(possiblePath)) {
+          detectionMap.get(possiblePath).forEach(element => potentialMatches.add(element));
+        }
+      }
+      
+      for (const element of potentialMatches) {
         try {
           const { e, i, n } = element;
           if (_matchExecutable(e, possiblePaths, args, _cwdPath)) {
@@ -72,14 +106,25 @@ async function scan() {
       }
     }
 
+    const scanTime = performance.now() - startTime;
+    
     parentPort.postMessage({
       type: 'scan_results',
-      games: Array.from(detectedGames)
+      games: Array.from(detectedGames),
+      stats: {
+        scanTimeMs: scanTime,
+        processCount
+      }
     });
   } catch (error) {
+    const scanTime = performance.now() - startTime;
     parentPort.postMessage({
       type: 'error',
-      error: error.message
+      error: error.message,
+      stats: {
+        scanTimeMs: scanTime,
+        processCount
+      }
     });
   }
 }
@@ -88,10 +133,17 @@ parentPort.on('message', async (message) => {
   switch (message.type) {
     case 'init':
       DetectableDB = message.detectable;
+      _generatePossiblePaths.cache = new Map();
       parentPort.postMessage({ type: 'initialized' });
       break;
     case 'scan':
       await scan();
+      break;
+    case 'clear_cache':
+      if (_generatePossiblePaths.cache) {
+        _generatePossiblePaths.cache.clear();
+      }
+      parentPort.postMessage({ type: 'cache_cleared' });
       break;
   }
 }); 
