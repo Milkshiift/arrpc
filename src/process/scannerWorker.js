@@ -57,13 +57,17 @@ async function scan() {
     for (const [pid, path, args, _cwdPath = ''] of processes) {
       const possiblePaths = _generatePossiblePaths(path);
 
-      for (const { e, i, n } of DetectableDB) {
+      for (const element of DetectableDB) {
         try {
+          const { e, i, n } = element;
           if (_matchExecutable(e, possiblePaths, args, _cwdPath)) {
             detectedGames.add({ id: i, name: n, pid });
           }
         } catch (error) {
-          //console.log(error)
+          parentPort.postMessage({
+            type: 'error',
+            error: "Error during processing: " + error + "\nCaused by: " + JSON.stringify(element)
+          });
         }
       }
     }
