@@ -65,5 +65,5 @@ export async function getDetectableDB(path) {
 
     log('Updated detectable DB');
 
-    return jsonData;
+    return transformed;
 }
