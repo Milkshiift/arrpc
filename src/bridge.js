@@ -17,7 +17,16 @@ if (process.env.ARRPC_BRIDGE_PORT) {
     throw new Error('invalid port');
   }
 }
+
 const wss = new WebSocketServer({ port });
+
+wss.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    throw new Error(`arRPC (rich presence) tried to use port ${port}, but it is already in use. Make sure you are not running another instance of arRPC.`);
+  } else {
+    throw error;
+  }
+});
 
 wss.on('connection', socket => {
   log('web connected');
