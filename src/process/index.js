@@ -101,6 +101,16 @@ export default class ProcessServer {
         delete this.timestamps[id];
         delete this.names[id];
         delete this.pids[id];
+
+        this.handlers.message({
+          socketId: id
+        }, {
+          cmd: 'SET_ACTIVITY',
+          args: {
+            activity: null,
+            pid: this.pids[id]
+          }
+        });
       }
     }
   }
