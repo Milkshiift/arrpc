@@ -4,7 +4,7 @@ import {getDetectableDB} from "./downloader.js";
 import {workerCode} from "./scannerWorkerString.js";
 const log = new Logger("process", "red").log;
 
-const DEBUG = false;
+const DEBUG = process.argv.some((arg) => arg === "--debug");
 
 export default class ProcessServer {
   constructor(handlers, detectablePath) {
