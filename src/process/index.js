@@ -8,7 +8,7 @@ const DEBUG = process.argv.some((arg) => arg === "--debug");
 
 export default class ProcessServer {
   constructor(handlers, detectablePath) {
-    if (!['win32', 'linux'].includes(process.platform)) return;
+    if (!['win32', 'linux', 'darwin'].includes(process.platform)) return;
 
     this.detectablePath = detectablePath;
     this.handlers = handlers;

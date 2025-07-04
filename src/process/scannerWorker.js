@@ -1,8 +1,21 @@
 import {parentPort} from 'worker_threads';
 import {getProcessesLinux} from "./native/linux.js";
 import {getProcessesWindows} from "./native/win32.js";
+import {getProcessesDarwin} from "./native/darwin.js";
 
-const getProcesses = process.platform === 'linux' ? getProcessesLinux : getProcessesWindows;
+let getProcesses;
+switch (process.platform) {
+    case 'linux':
+        getProcesses = getProcessesLinux;
+        break;
+    case 'win32':
+        getProcesses = getProcessesWindows;
+        break;
+  case 'darwin':
+        getProcesses = getProcessesDarwin;
+        break;
+}
+
 let DetectableDB;
 
 function _generatePossiblePaths(path) {
