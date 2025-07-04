@@ -4,21 +4,27 @@
     "": {
       "name": "arrpc",
       "dependencies": {
+        "koffi": "^2.12.0",
         "picocolors": "^1.1.1",
-        "ws": "^8.18.0",
+        "ws": "^8.18.3",
       },
       "optionalDependencies": {
-        "bufferutil": "^4.0.8",
+        "bufferutil": "^4.0.9",
       },
     },
   },
+  "trustedDependencies": [
+    "koffi",
+  ],
   "packages": {
     "bufferutil": ["bufferutil@4.0.9", "", { "dependencies": { "node-gyp-build": "^4.3.0" } }, "sha512-WDtdLmJvAuNNPzByAYpRo2rF1Mmradw6gvWsQKf63476DDXmomT9zUiGypLcG4ibIM67vhAj8jJRdbmEws2Aqw=="],
+
+    "koffi": ["koffi@2.12.0", "", {}, "sha512-J886y/bvoGG4ZhMVstB2Nh6/q9tzAYn0kaH7Ss8DWavGIxP5jOLzUY9IZzw9pMuXArj0SLSpl0MYsKRURPAv7g=="],
 
     "node-gyp-build": ["node-gyp-build@4.8.2", "", { "bin": { "node-gyp-build": "bin.js", "node-gyp-build-optional": "optional.js", "node-gyp-build-test": "build-test.js" } }, "sha512-IRUxE4BVsHWXkV/SFOut4qTlagw2aM8T5/vnTsmrHJvVoKueJHRc/JaFND7QDDc61kLYUJ6qlZM3sqTSyx2dTw=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
-    "ws": ["ws@8.18.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-RKW2aJZMXeMxVpnZ6bck+RswznaxmzdULiBr6KY7XkTnW8uvt0iT9H5DkHUChXrc+uurzwa0rVI16n/Xzjdz1w=="],
+    "ws": ["ws@8.18.3", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg=="],
   }
 }
