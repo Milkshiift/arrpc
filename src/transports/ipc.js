@@ -134,23 +134,32 @@ const socketIsAvailable = async socket => {
 };
 
 const getAvailableSocket = async (tries = 0) => {
-  if (tries > 9) {
-    throw new Error('ran out of tries to find socket', tries);
-  }
+  return new Promise((resolve, reject) => {
+    if (tries > 9) {
+      return reject(new Error('ran out of tries to find socket'));
+    }
 
-  const path = SOCKET_PATH + '-' + tries;
-  const socket = createConnection(path);
+    const path = SOCKET_PATH + '-' + tries;
+    const socket = createConnection(path, () => {
+      socket.end();
+      resolve(getAvailableSocket(tries + 1));
+    });
 
-  if (process.env.ARRPC_DEBUG) log('checking', path);
-
-  if (await socketIsAvailable(socket)) {
-    if (platform !== 'win32') try { unlinkSync(path); } catch { }
-
-    return path;
-  }
-
-  log(`not available, trying again (attempt ${tries + 1})`);
-  return getAvailableSocket(tries + 1);
+    socket.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED') {
+        if (platform !== 'win32') {
+          try {
+            unlinkSync(path);
+          } catch (e) {
+            // ignore
+          }
+        }
+        resolve(path);
+      } else {
+        reject(err);
+      }
+    });
+  });
 };
 
 export default class IPCServer {

@@ -8,50 +8,52 @@ import { parse } from 'querystring';
 const portRange = [ 6463, 6472 ]; // ports available/possible: 6463-6472
 
 export default class WSServer {
-  constructor(handlers) { return (async () => {
+  constructor(handlers) {
     this.handlers = handlers;
-
     this.onConnection = this.onConnection.bind(this);
     this.onMessage = this.onMessage.bind(this);
 
-    let port = portRange[0];
+    return (async () => {
+      let port = portRange[0];
+      let http, wss;
 
-    let http, wss;
-    while (port <= portRange[1]) {
-      if (process.env.ARRPC_DEBUG) log('trying port', port);
+      while (port <= portRange[1]) {
+        if (process.env.ARRPC_DEBUG) log('trying port', port);
 
-      if (await new Promise(res => {
-        http = createServer();
-        http.on('error', e => {
-          // log('http error', e);
+        try {
+          await new Promise((resolve, reject) => {
+            http = createServer();
+            http.on('error', reject);
 
+            wss = new WebSocketServer({ server: http });
+            wss.on('error', reject);
+            wss.on('connection', this.onConnection);
+
+            http.listen(port, '127.0.0.1', () => {
+              log('listening on', port);
+              this.http = http;
+              this.wss = wss;
+              resolve();
+            });
+          });
+          break;
+        } catch (e) {
           if (e.code === 'EADDRINUSE') {
             log(port, 'in use!');
-            res(false);
+            port++;
+          } else {
+            throw e;
           }
-        });
+        }
+      }
 
-        wss = new WebSocketServer({ server: http });
-        wss.on('error', e => {
-          // log('wss error', e);
-        });
+      if (port > portRange[1]) {
+        throw new Error('No available ports in range');
+      }
 
-        wss.on('connection', this.onConnection);
-
-        http.listen(port, '127.0.0.1', () => {
-          log('listening on', port);
-
-          this.http = http;
-          this.wss = wss;
-
-          res(true);
-        });
-      })) break;
-      port++;
-    }
-
-    return this;
-  })(); }
+      return this;
+    })();
+  }
 
   onConnection(socket, req) {
     const params = parse(req.url.split('?')[1]);
