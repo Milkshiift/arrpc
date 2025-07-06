@@ -12,35 +12,34 @@ const KEY_MAP = {
 const FILTERED_KEYS = ['hook', 'overlay', 'overlay_compatibility_hook', 'aliases', 'is_launcher', 'os'];
 
 export function transformObject(all) {
-    const transformKey = (key) => {
-        if (FILTERED_KEYS.includes(key)) return null;
-        return KEY_MAP[key] || key;
+    const KEY_MAP = {
+        executables: 'e',
+        arguments: 'a',
+        name: 'n',
+        id: 'i',
     };
+    const FILTERED_KEYS = ['hook', 'overlay', 'overlay_compatibility_hook', 'aliases', 'is_launcher', 'os'];
 
-    gameIter: for (const gameKey in all) {
-        const game = all[gameKey];
+    return all.map(game => {
+        const newGame = {};
         for (const key in game) {
-            const newKey = transformKey(key);
-            if (newKey !== null) game[newKey] = game[key];
-            delete game[key];
-
-            const prop = game[newKey];
-            if (Array.isArray(prop)) {
-                if (prop.length < 1) {
-                    delete all[gameKey];
-                    continue gameIter;
-                }
-                const execs = {
-                    n: prop.filter(item => item.os !== 'darwin').map(item => item.name)
-                };
-                const arg = prop[0]["arguments"];
-                if (arg) execs.a = arg;
-                game[newKey] = execs;
-            }
+            if (FILTERED_KEYS.includes(key)) continue;
+            const newKey = KEY_MAP[key] || key;
+            newGame[newKey] = game[key];
         }
-    }
 
-    return all.filter(Boolean);
+        if (newGame.e) {
+            if (newGame.e.length < 1) return null;
+            const execs = {
+                n: newGame.e.filter(item => item.os !== 'darwin').map(item => item.name)
+            };
+            const arg = newGame.e[0]["arguments"];
+            if (arg) execs.a = arg;
+            newGame.e = execs;
+        }
+
+        return newGame;
+    }).filter(Boolean);
 }
 
 export async function getDetectableDB(path) {
