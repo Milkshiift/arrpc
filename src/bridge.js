@@ -22,7 +22,7 @@ const wss = new WebSocketServer({ port });
 
 wss.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
-    throw new Error(`arRPC (rich presence) tried to use port ${port}, but it is already in use. Make sure you are not running another instance of arRPC.`);
+    throw new Error(`arRPC (rich presence) tried to use port ${port}, but it is already in use. Make sure you are not running another instance of arRPC. https://github.com/Milkshiift/GoofCord/wiki/FAQ#rich-presence-cant-use-port-1337-because-it-is-occupied`);
   } else {
     throw error;
   }
