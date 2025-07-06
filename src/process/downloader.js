@@ -20,7 +20,7 @@ export function transformObject(all) {
     };
     const FILTERED_KEYS = ['hook', 'overlay', 'overlay_compatibility_hook', 'aliases', 'is_launcher', 'os'];
 
-    return all.map(game => {
+    return all.reduce((acc, game) => {
         const newGame = {};
         for (const key in game) {
             if (FILTERED_KEYS.includes(key)) continue;
@@ -29,17 +29,18 @@ export function transformObject(all) {
         }
 
         if (newGame.e) {
-            if (newGame.e.length < 1) return null;
+            if (newGame.e.length === 0) return acc;
             const execs = {
                 n: newGame.e.filter(item => item.os !== 'darwin').map(item => item.name)
             };
-            const arg = newGame.e[0]["arguments"];
+            const arg = newGame.e[0]?.arguments;
             if (arg) execs.a = arg;
             newGame.e = execs;
         }
 
-        return newGame;
-    }).filter(Boolean);
+        acc.push(newGame);
+        return acc;
+    }, []);
 }
 
 export async function getDetectableDB(path) {

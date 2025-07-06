@@ -69,65 +69,46 @@ export default class RPCServer extends EventEmitter {
   async onMessage(socket, { cmd, args, nonce }) {
     this.emit('message', { socket, cmd, args, nonce });
 
-    switch (cmd) {
-      case "CONNECTIONS_CALLBACK":
-        // If it works - it works
-        socket.send?.({
-          cmd,
-          data: {
-            code: 1000
-          },
-          evt: 'ERROR',
-          nonce
-        });
-        break;
-
-      case 'SET_ACTIVITY':
-        const { activity, pid } = args; // translate given parameters into what discord dispatch expects
-
+    const commandHandlers = {
+      CONNECTIONS_CALLBACK: () => {
+        socket.send?.({ cmd, data: { code: 1000 }, evt: 'ERROR', nonce });
+      },
+      SET_ACTIVITY: () => {
+        const { activity, pid } = args;
         if (!activity) {
-          // Activity clear
-          socket.send?.({
-            cmd,
-            data: null,
-            evt: null,
-            nonce
-          });
-
-          return this.emit('activity', {
-            activity: null,
-            pid,
-            socketId: socket.socketId.toString()
-          });
+          socket.send?.({ cmd, data: null, evt: null, nonce });
+          return this.emit('activity', { activity: null, pid, socketId: socket.socketId.toString() });
         }
 
         const { buttons, timestamps, instance } = activity;
-
         socket.lastPid = pid ?? socket.lastPid;
 
         const metadata = {};
         const extra = {};
-        if (buttons) { // map buttons into expected metadata
+        if (buttons) {
           metadata.button_urls = buttons.map(x => x.url);
           extra.buttons = buttons.map(x => x.label);
         }
 
-        if (timestamps) for (const x in timestamps) { // translate s -> ms timestamps
-          if (Date.now().toString().length - timestamps[x].toString().length > 2) timestamps[x] = Math.floor(1000 * timestamps[x]);
+        if (timestamps) {
+          for (const x in timestamps) {
+            if (String(Date.now()).length - String(timestamps[x]).length > 2) {
+              timestamps[x] = Math.floor(1000 * timestamps[x]);
+            }
+          }
         }
-
 
         this.emit('activity', {
           activity: {
             application_id: socket.clientId,
             type: 0,
             metadata,
-            flags: instance ? (1 << 0) : 0,
+            flags: instance ? 1 : 0,
             ...activity,
-            ...extra
+            ...extra,
           },
           pid,
-          socketId: socket.socketId.toString()
+          socketId: socket.socketId.toString(),
         });
 
         socket.send?.({
@@ -135,50 +116,46 @@ export default class RPCServer extends EventEmitter {
           data: {
             ...activity,
             ...extra,
-            name: "",
+            name: '',
             application_id: socket.clientId,
             type: 0,
-            metadata
+            metadata,
           },
           evt: null,
-          nonce
+          nonce,
         });
-
-        break;
-
-      case 'GUILD_TEMPLATE_BROWSER':
-      case 'INVITE_BROWSER':
-        const { code } = args;
-
-        const isInvite = cmd === 'INVITE_BROWSER';
-        const callback = (isValid = true) => {
-          socket.send({
-            cmd,
-            data: isValid ? { code } : {
-              code: isInvite ? 4011 : 4017,
-              message: `Invalid ${isInvite ? 'invite' : 'guild template'} id: ${code}`
-            },
-            evt: isValid ? null : 'ERROR',
-            nonce
-          });
-        }
-
-        this.emit(isInvite ? 'invite' : 'guild-template', code, callback);
-        break;
-
-      case 'DEEP_LINK':
+      },
+      GUILD_TEMPLATE_BROWSER: () => this.handleInvite(socket, args, nonce, false),
+      INVITE_BROWSER: () => this.handleInvite(socket, args, nonce, true),
+      DEEP_LINK: () => {
         const deep_callback = (success) => {
           socket.send({ cmd, data: success ? null : { code: 1001 }, evt: success ? null : 'ERROR', nonce });
-        }
+        };
 
-        // Prevent Discord from staying in "Opening Discord App" loop when going into shop/discovery menu
-        if (args.type === "SHOP" || args.type === "FEATURES") {
-          deep_callback(false)
-          break;
+        if (args.type === 'SHOP' || args.type === 'FEATURES') {
+          deep_callback(false);
+        } else {
+          this.emit('link', args, deep_callback);
         }
+      },
+    };
 
-        this.emit('link', args, deep_callback);
-        break;
-    }
+    commandHandlers[cmd]?.();
+  }
+
+  handleInvite(socket, args, nonce, isInvite) {
+    const { code } = args;
+    const callback = (isValid = true) => {
+      socket.send({
+        cmd: isInvite ? 'INVITE_BROWSER' : 'GUILD_TEMPLATE_BROWSER',
+        data: isValid ? { code } : {
+          code: isInvite ? 4011 : 4017,
+          message: `Invalid ${isInvite ? 'invite' : 'guild template'} id: ${code}`,
+        },
+        evt: isValid ? null : 'ERROR',
+        nonce,
+      });
+    };
+    this.emit(isInvite ? 'invite' : 'guild-template', code, callback);
   }
 }

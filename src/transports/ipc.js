@@ -95,71 +95,38 @@ const read = socket => {
   read(socket);
 };
 
-const socketIsAvailable = async socket => {
-  socket.pause();
-  socket.on('readable', () => {
-    try {
-      read(socket);
-    } catch (e) {
-      log('error whilst reading', e);
+const getAvailableSocket = async () => {
+  for (let i = 0; i < 10; i++) {
+    const path = SOCKET_PATH + '-' + i;
+    const socket = createConnection(path);
 
-      socket.end(encode(Types.CLOSE, {
-        code: CloseCodes.CLOSE_UNSUPPORTED,
-        message: e.message
-      }));
-      socket.destroy();
-    }
-  });
+    const connected = await new Promise((resolve) => {
+      socket.on('connect', () => {
+        socket.end();
+        resolve(true);
+      });
 
-  const stop = () => {
-    try {
-      socket.end();
-      socket.destroy();
-    } catch { }
-  };
-
-  const possibleOutcomes = Promise.race([
-    new Promise(res => socket.on('error', res)), // errored
-    new Promise((res, rej) => socket.on('pong', () => rej('socket ponged'))), // ponged
-    new Promise((res, rej) => setTimeout(() => rej('timed out'), 1000)) // timed out
-  ]).then(() => true, e => e);
-
-  socket.write(encode(Types.PING, ++uniqueId));
-
-  const outcome = await possibleOutcomes;
-  stop();
-  if (process.env.ARRPC_DEBUG) log('checked if socket is available:', outcome === true, outcome === true ? '' : `- reason: ${outcome}`);
-
-  return outcome === true;
-};
-
-const getAvailableSocket = async (tries = 0) => {
-  return new Promise((resolve, reject) => {
-    if (tries > 9) {
-      return reject(new Error('ran out of tries to find socket'));
-    }
-
-    const path = SOCKET_PATH + '-' + tries;
-    const socket = createConnection(path, () => {
-      socket.end();
-      resolve(getAvailableSocket(tries + 1));
-    });
-
-    socket.on('error', (err) => {
-      if (err.code === 'ECONNREFUSED') {
-        if (platform !== 'win32') {
-          try {
-            unlinkSync(path);
-          } catch (e) {
-            // ignore
+      socket.on('error', (err) => {
+        if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT') {
+          if (platform !== 'win32') {
+            try {
+              unlinkSync(path);
+            } catch (e) {
+              // ignore
+            }
           }
+          resolve(false);
+        } else {
+          resolve(true);
         }
-        resolve(path);
-      } else {
-        reject(err);
-      }
+      });
     });
-  });
+
+    if (!connected) {
+      return path;
+    }
+  }
+  throw new Error('ran out of tries to find socket');
 };
 
 export default class IPCServer {
