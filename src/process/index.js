@@ -34,6 +34,18 @@ export default class ProcessServer {
 
   async init() {
     this.DetectableDB = await getDetectableDB(this.detectablePath);
+    this.detectionMap = new Map();
+    for (const element of this.DetectableDB) {
+      if (element.e && element.e.n) {
+        for (const name of element.e.n) {
+          const key = name[0] === '>' ? name.substring(1) : name;
+          if (!this.detectionMap.has(key)) {
+            this.detectionMap.set(key, []);
+          }
+          this.detectionMap.get(key).push(element);
+        }
+      }
+    }
     this._generatePossiblePaths.cache = new Map();
 
     this.scan = this.scan.bind(this);
@@ -104,19 +116,6 @@ export default class ProcessServer {
       processCount = processes.length;
       const detectedGames = new Set();
 
-      const detectionMap = new Map();
-      for (const element of this.DetectableDB) {
-        if (element.e && element.e.n) {
-          for (const name of element.e.n) {
-            const key = name[0] === '>' ? name.substring(1) : name;
-            if (!detectionMap.has(key)) {
-              detectionMap.set(key, []);
-            }
-            detectionMap.get(key).push(element);
-          }
-        }
-      }
-
       for (const [pid, path, args, _cwdPath = ''] of processes) {
         if (!path) continue; // Skip processes with no path
 
@@ -124,8 +123,8 @@ export default class ProcessServer {
 
         const potentialMatches = new Set();
         for (const possiblePath of possiblePaths) {
-          if (detectionMap.has(possiblePath)) {
-            detectionMap.get(possiblePath).forEach(element => potentialMatches.add(element));
+          if (this.detectionMap.has(possiblePath)) {
+            this.detectionMap.get(possiblePath).forEach(element => potentialMatches.add(element));
           }
         }
 
