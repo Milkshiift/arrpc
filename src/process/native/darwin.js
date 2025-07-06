@@ -2,7 +2,7 @@
 
 import { exec } from 'child_process';
 
-export const getProcessesDarwin = async () => {
+export const getProcesses = async () => {
     return new Promise((resolve) => {
         exec('ps -awwx -o pid=,command=', (error, stdout, stderr) => {
             if (error || stderr) {

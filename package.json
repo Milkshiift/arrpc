@@ -4,8 +4,8 @@
   "description": "Open Discord RPC server for atypical setups",
   "main": "src/server.js",
   "scripts": {
-    "start": "bun ./updateWorkerString.js && node ./src/index.js",
-    "bundleRun": "bun ./updateWorkerString.js && bun build ./src/index.js --target node --format esm --packages bundle --minify --outdir build && node build/index.js"
+    "start": "node ./src/index.js",
+    "bundleRun": "bun build ./src/index.js --target node --format esm --packages bundle --minify --outdir build && node build/index.js"
   },
   "repository": {
     "type": "git",
@@ -18,12 +18,12 @@
   },
   "homepage": "https://github.com/OpenAsar/arrpc#readme",
   "dependencies": {
-    "koffi": "^2.12.0",
     "picocolors": "^1.1.1",
     "ws": "^8.18.3"
   },
   "optionalDependencies": {
-    "bufferutil": "^4.0.9"
+    "bufferutil": "^4.0.9",
+    "koffi": "^2.12.0"
   },
   "type": "module",
   "bin": {

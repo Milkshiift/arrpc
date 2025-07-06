@@ -1,4 +1,4 @@
-// From https://github.com/Legcord/arrpc
+// From https://github.com/OpenAsar/arrpc/pull/109
 
 import koffi from 'koffi';
 
@@ -71,7 +71,7 @@ const getProcessImageName = (pid) => {
     }
 };
 
-export const getProcessesWindows = async () => {
+export const getProcesses = async () => {
     const processIds = new Uint32Array(1024);
     const bytesNeeded = new Uint32Array(1);
     const out = [];

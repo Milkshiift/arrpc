@@ -5,7 +5,7 @@ const YIELD_AFTER_N_PIDS = 10;
 
 const yieldToEventLoop = () => new Promise(resolve => setImmediate(resolve));
 
-export const getProcessesLinux = async () => {
+export const getProcesses = async () => {
     try {
         const pidEntries = fs.readdirSync("/proc", { withFileTypes: true });
         const pidsToProcess = pidEntries.filter(dirent => dirent.isDirectory() && /^\d+$/.test(dirent.name));
