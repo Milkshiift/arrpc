@@ -10,7 +10,7 @@ export const send = msg => {
   wss.clients.forEach(x => x.send(JSON.stringify(msg)));
 };
 
-let port = 1338;
+let port = 1337;
 if (process.env.ARRPC_BRIDGE_PORT) {
   port = parseInt(process.env.ARRPC_BRIDGE_PORT);
   if (isNaN(port)) {
