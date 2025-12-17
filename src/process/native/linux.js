@@ -1,67 +1,60 @@
-import * as fs from "fs";
+import * as fs from "node:fs";
 
-const FILE_OPERATION_TIMEOUT_MS = 100;
-const YIELD_AFTER_N_PIDS = 10;
+const YIELD_AFTER_MS = 10;
 
-const yieldToEventLoop = () => new Promise(resolve => setImmediate(resolve));
+const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve));
 
 export const getProcesses = async () => {
-    try {
-        const pidEntries = fs.readdirSync("/proc", { withFileTypes: true });
-        const pidsToProcess = pidEntries.filter(dirent => dirent.isDirectory() && /^\d+$/.test(dirent.name));
+	try {
+		const pidEntries = await fs.promises.readdir("/proc", {
+			withFileTypes: true,
+		});
 
-        const processes = [];
-        let processedCount = 0;
+		const processes = [];
+		let lastYield = performance.now();
 
-        for (const dirent of pidsToProcess) {
-            const pid = +dirent.name;
-            try {
-                let cmdlineContent;
-                try {
-                    const syncCmdlineRead = () => fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-                    cmdlineContent = await Promise.race([
-                        new Promise((resolve, reject) => {
-                            try { resolve(syncCmdlineRead()); } catch (e) { reject(e); }
-                        }),
-                        new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error(`Timeout reading cmdline for PID ${pid}`)), FILE_OPERATION_TIMEOUT_MS)
-                        )
-                    ]);
-                } catch (err) {
-                    continue;
-                }
+		for (const dirent of pidEntries) {
+			if (!dirent.isDirectory()) continue;
 
-                let statusContent;
-                try {
-                    statusContent = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
-                } catch (statusErr) {
-                    continue;
-                }
+			const code = dirent.name.charCodeAt(0);
+			if (code < 48 || code > 57) continue;
 
-                if (statusContent.includes('State:\tT') || statusContent.includes('State:\tZ')) {
-                    continue;
-                }
+			const pid = +dirent.name;
 
-                let cwdPath;
-                try {
-                    cwdPath = fs.readlinkSync(`/proc/${pid}/cwd`);
-                } catch (err) { /* cwd is optional */ }
+			try {
+				const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+				if (!cmdline) continue;
 
-                const parts = cmdlineContent.split('\0').filter(part => part.trim() !== '');
+				// Check status to avoid Zombies (Z) or Stopped (T) processes
+				const status = fs.readFileSync(`/proc/${pid}/status`, "utf8");
+				if (status.includes("State:\tT") || status.includes("State:\tZ")) {
+					continue;
+				}
 
-                if (parts.length > 0) {
-                    processes.push([pid, parts[0], parts.slice(1), cwdPath]);
-                }
-            } catch (err) {}
+				let cwdPath;
+				try {
+					cwdPath = fs.readlinkSync(`/proc/${pid}/cwd`);
+				} catch {}
 
-            processedCount++;
-            if (processedCount % YIELD_AFTER_N_PIDS === 0) {
-                await yieldToEventLoop();
-            }
-        }
-        return processes;
-    } catch (error) {
-        console.error('Process discovery error:', error.message);
-        return [];
-    }
+				const nullIndex = cmdline.indexOf("\0");
+				if (nullIndex === -1) continue;
+
+				const command = cmdline.substring(0, nullIndex);
+				const argsRaw = cmdline.substring(nullIndex + 1);
+
+				const args = argsRaw.split("\0").filter((x) => x);
+
+				processes.push([pid, command, args, cwdPath]);
+			} catch (_e) {}
+
+			if (performance.now() - lastYield > YIELD_AFTER_MS) {
+				await yieldToEventLoop();
+				lastYield = performance.now();
+			}
+		}
+		return processes;
+	} catch (error) {
+		console.error("Process discovery error:", error.message);
+		return [];
+	}
 };

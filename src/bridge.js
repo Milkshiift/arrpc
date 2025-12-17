@@ -1,43 +1,58 @@
-import {Logger} from './logger.js';
+import { Logger } from "./logger.js";
+import { WebSocketServer } from "ws";
+
 const log = new Logger("bridge", "cyan").log;
 
-import { WebSocketServer } from 'ws';
+const lastMsg = new Map();
+let wss = null;
 
-// basic bridge to pass info onto webapp
-let lastMsg = {};
-export const send = msg => {
-  lastMsg[msg.socketId] = msg;
-  wss.clients.forEach(x => x.send(JSON.stringify(msg)));
+export const send = (msg) => {
+	// If activity is null, the application has stopped/disconnected.
+	// Remove from cache to prevent leaks and reconnecting clients seeing dead status.
+	if (msg.activity === null) {
+		lastMsg.delete(msg.socketId);
+	} else {
+		lastMsg.set(msg.socketId, msg);
+	}
+
+	if (wss) {
+		const payload = JSON.stringify(msg);
+		wss.clients.forEach((x) => {
+			if (x.readyState === 1) x.send(payload);
+		});
+	}
 };
 
-let port = 1337;
-if (process.env.ARRPC_BRIDGE_PORT) {
-  port = parseInt(process.env.ARRPC_BRIDGE_PORT);
-  if (isNaN(port)) {
-    throw new Error('invalid port');
-  }
-}
+export const init = () => {
+	let port = 1337;
+	if (process.env.ARRPC_BRIDGE_PORT) {
+		const parsed = parseInt(process.env.ARRPC_BRIDGE_PORT, 10);
+		if (!Number.isNaN(parsed)) port = parsed;
+	}
 
-const wss = new WebSocketServer({ port });
+	wss = new WebSocketServer({ port });
 
-wss.on('error', (error) => {
-  if (error.code === 'EADDRINUSE') {
-    throw new Error(`arRPC (rich presence) tried to use port ${port}, but it is already in use. Make sure you are not running another instance of arRPC.\nhttps://github.com/Milkshiift/GoofCord/wiki/FAQ#rich-presence-cant-use-port-1337-because-it-is-occupied`);
-  } else {
-    throw error;
-  }
-});
+	wss.on("error", (error) => {
+		if (error.code === "EADDRINUSE") {
+			throw new Error(
+				`arRPC tried to use bridge port ${port}, but it is already in use.`,
+			);
+		} else {
+			throw error;
+		}
+	});
 
-wss.on('connection', socket => {
-  log('web connected');
+	wss.on("connection", (socket) => {
+		log("web connected");
 
-  for (const id in lastMsg) { // catch up newly connected
-    if (lastMsg[id].activity != null) send(lastMsg[id]);
-  }
+		for (const [_, msg] of lastMsg) {
+			if (msg.activity != null) socket.send(JSON.stringify(msg));
+		}
 
-  socket.on('close', () => {
-    log('web disconnected');
-  });
-});
+		socket.on("close", () => {
+			log("web disconnected");
+		});
+	});
 
-wss.on('listening', () => log('listening on', port));
+	wss.on("listening", () => log("listening on", port));
+};
