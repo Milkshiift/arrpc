@@ -1,37 +1,35 @@
 import { Logger } from "../logger.ts";
-import { getDetectableDB } from "./downloader.ts";
+import { getDetectableDB, type DetectableGame } from "./downloader.ts";
+import type { ProcessEntry } from "../types.ts";
+
 const log = new Logger("process", "red").log;
 
-const DEBUG = process.argv.some((arg) => arg === "--debug");
+const DEBUG = process.argv.includes("--debug");
 
-let getProcesses: () => Promise<[number, string, string[], string | undefined][]>;
+type ProcessScanner = () => Promise<ProcessEntry[]>;
+let getProcesses: ProcessScanner;
 
-switch (process.platform) {
-	case "win32":
-		getProcesses = (await import("./native/win32.ts")).getProcesses;
-		break;
-	case "darwin":
-		getProcesses = (await import("./native/darwin.ts")).getProcesses;
-		break;
-	case "linux":
-		getProcesses = (await import("./native/linux.ts")).getProcesses;
-		break;
-	default:
-		throw new Error("Unsupported platform");
+try {
+	switch (process.platform) {
+		case "win32":
+			getProcesses = (await import("./native/win32.ts")).getProcesses;
+			break;
+		case "darwin":
+			getProcesses = (await import("./native/darwin.ts")).getProcesses;
+			break;
+		case "linux":
+			getProcesses = (await import("./native/linux.ts")).getProcesses;
+			break;
+		default:
+			throw new Error(`Unsupported platform: ${process.platform}`);
+	}
+} catch (e) {
+	log("Failed to import native process scanner:", e);
+	process.exit(1);
 }
 
-interface ProcessServerHandlers {
+export interface ProcessServerHandlers {
 	message: (socket: { socketId: string }, msg: unknown) => void;
-}
-
-interface DetectableGame {
-	e?: {
-		n: string[];
-		a?: string;
-	};
-	i?: string;
-	n?: string;
-	[key: string]: unknown;
 }
 
 interface DetectedGame {
@@ -42,68 +40,56 @@ interface DetectedGame {
 
 export default class ProcessServer {
 	handlers: ProcessServerHandlers;
-	timestamps: Record<string, number>;
-	names: Record<string, string>;
-	pids: Record<string, number>;
+	timestamps: Record<string, number> = {};
+	names: Record<string, string> = {};
+	pids: Record<string, number> = {};
 	detectablePath: string;
 	DetectableDB: DetectableGame[] = [];
 	detectionMap: Map<string, DetectableGame[]> = new Map();
-	_generatePossiblePaths: {
-		(path: string): string[];
-		cache?: Map<string, string[]>;
-	};
+
+	// Cache for path variations
+	private pathCache: Map<string, string[]> = new Map();
 
 	constructor(handlers: ProcessServerHandlers, detectablePath: string) {
-		if (!getProcesses) {
-			throw new Error("Failed to load process scanner");
-		}
-
 		this.handlers = handlers;
-		this.timestamps = {};
-		this.names = {};
-		this.pids = {};
 		this.detectablePath = detectablePath;
-
-		this._generatePossiblePaths = this.generatePossiblePathsImpl.bind(this);
-		this._generatePossiblePaths.cache = new Map();
-
 		void this.init();
 	}
 
 	async init(): Promise<void> {
 		this.DetectableDB = await getDetectableDB(this.detectablePath);
-		this.detectionMap = new Map();
+		this.detectionMap.clear();
+
 		for (const element of this.DetectableDB) {
 			if (element.e?.n) {
 				for (const name of element.e.n) {
-					const key = name[0] === ">" ? name.substring(1) : name;
-					if (!this.detectionMap.has(key)) {
-						this.detectionMap.set(key, []);
-					}
-					this.detectionMap.get(key)?.push(element);
+					const key = name.startsWith(">") ? name.slice(1) : name;
+					const list = this.detectionMap.get(key) ?? [];
+					list.push(element);
+					this.detectionMap.set(key, list);
 				}
 			}
 		}
-		
-		this._generatePossiblePaths.cache = new Map();
 
-		this.scan = this.scan.bind(this);
+		this.pathCache.clear();
+
 		await this.scan();
-		setInterval(this.scan, 5000);
+		setInterval(() => void this.scan(), 5000);
 
 		log("started");
 	}
 
-	generatePossiblePathsImpl(path: string): string[] {
-		if (!this._generatePossiblePaths.cache)
-			this._generatePossiblePaths.cache = new Map();
-		if (this._generatePossiblePaths.cache.has(path))
-			return this._generatePossiblePaths.cache.get(path)!;
+	generatePossiblePaths(path: string): string[] {
+		// Safe Map Access
+		const cached = this.pathCache.get(path);
+		if (cached) return cached;
 
 		const normalizedPath = path.toLowerCase();
-
 		const splitPath = normalizedPath.replaceAll("\\", "/").split("/");
-		if (/^[a-z]:$/.test(splitPath[0]!) || splitPath[0] === "") {
+
+		// Safe Array Access
+		const firstPart = splitPath[0] ?? "";
+		if (firstPart === "" || /^[a-z]:$/.test(firstPart)) {
 			splitPath.shift();
 		}
 
@@ -123,30 +109,31 @@ export default class ProcessServer {
 			}
 		}
 
-		this._generatePossiblePaths.cache.set(path, variations);
+		this.pathCache.set(path, variations);
 
-		if (this._generatePossiblePaths.cache.size > 1000) {
-			const iterator = this._generatePossiblePaths.cache.keys();
-			const firstKey = iterator.next().value;
-			if (firstKey) this._generatePossiblePaths.cache.delete(firstKey);
+		// Simple LRU-like eviction
+		if (this.pathCache.size > 1000) {
+			const firstKey = this.pathCache.keys().next().value;
+			if (firstKey) this.pathCache.delete(firstKey);
 		}
 
 		return variations;
 	}
 
-	_matchExecutable(
+	private matchExecutable(
 		executables: DetectableGame["e"],
 		possiblePaths: string[],
 		args: string[] | undefined,
 		cwdPath: string | undefined,
 	): boolean {
 		if (!executables) return false;
+
 		const argsMatch = !executables.a || args?.includes(executables.a);
 		if (!argsMatch) return false;
 
 		return executables.n.some((name) => {
-			if (name[0] === ">") {
-				return name.substring(1) === possiblePaths[0];
+			if (name.startsWith(">")) {
+				return name.slice(1) === possiblePaths[0];
 			}
 			return possiblePaths.some(
 				(path) =>
@@ -157,7 +144,7 @@ export default class ProcessServer {
 	}
 
 	async scan(): Promise<void> {
-		const startTime = DEBUG ? performance.now() : undefined;
+		const startTime = DEBUG ? performance.now() : 0;
 		let processCount = 0;
 
 		try {
@@ -165,44 +152,39 @@ export default class ProcessServer {
 			processCount = processes.length;
 			const detectedGames = new Set<DetectedGame>();
 
-			for (const [pid, path, args, _cwdPath = ""] of processes) {
+			for (const [pid, path, args, _cwdPath] of processes) {
 				if (!path) continue;
-				const possiblePaths = this._generatePossiblePaths(path);
+				const possiblePaths = this.generatePossiblePaths(path);
+				const cwdPath = _cwdPath || "";
 
 				const potentialMatches = new Set<DetectableGame>();
+
 				for (const possiblePath of possiblePaths) {
-					if (this.detectionMap.has(possiblePath)) {
-						this.detectionMap
-							.get(possiblePath)
-							?.forEach((element) => void potentialMatches.add(element));
+					const matches = this.detectionMap.get(possiblePath);
+					if (matches) {
+						for (const match of matches) potentialMatches.add(match);
 					}
 				}
 
 				for (const element of potentialMatches) {
 					try {
 						const { e, i, n } = element;
-						if (this._matchExecutable(e, possiblePaths, args, _cwdPath) && i && n) {
+						if (this.matchExecutable(e, possiblePaths, args, cwdPath) && i && n) {
 							detectedGames.add({ id: i, name: n, pid });
 						}
 					} catch (error) {
-						log(
-							"Error during processing:",
-							error,
-							"\nCaused by:",
-							JSON.stringify(element),
-						);
+						log("Error during matching:", error);
 					}
 				}
 			}
 
 			this.handleScanResults(Array.from(detectedGames));
 
-			if (DEBUG && startTime !== undefined)
-				log(
-					`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`,
-				);
-		} catch (error: any) {
-			log("Worker error:", error.message);
+			if (DEBUG) {
+				log(`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`);
+			}
+		} catch (error: unknown) {
+			log("Worker error:", error instanceof Error ? error.message : error);
 		}
 	}
 
@@ -220,9 +202,7 @@ export default class ProcessServer {
 			}
 
 			this.handlers.message(
-				{
-					socketId: id,
-				},
+				{ socketId: id },
 				{
 					cmd: "SET_ACTIVITY",
 					args: {
@@ -239,10 +219,10 @@ export default class ProcessServer {
 			);
 		}
 
-		this._cleanupLostGames(activeIds);
+		this.cleanupLostGames(activeIds);
 	}
 
-	_cleanupLostGames(activeIds: Set<string>): void {
+	private cleanupLostGames(activeIds: Set<string>): void {
 		for (const id in this.timestamps) {
 			if (!activeIds.has(id)) {
 				log("lost game!", this.names[id]);
@@ -251,9 +231,7 @@ export default class ProcessServer {
 				delete this.pids[id];
 
 				this.handlers.message(
-					{
-						socketId: id,
-					},
+					{ socketId: id },
 					{
 						cmd: "SET_ACTIVITY",
 						args: {

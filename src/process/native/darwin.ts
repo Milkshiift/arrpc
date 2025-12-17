@@ -1,10 +1,9 @@
 // From https://github.com/Legcord/arrpc
 
 import { exec } from "node:child_process";
+import type { ProcessEntry } from "../../types.ts";
 
-export const getProcesses = async (): Promise<
-	[number, string, string[], undefined][]
-> => {
+export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	return new Promise((resolve) => {
 		exec("ps -awwx -o pid=,command=", (error, stdout, stderr) => {
 			if (error || stderr) {

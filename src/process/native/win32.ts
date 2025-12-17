@@ -1,6 +1,7 @@
 // From https://github.com/OpenAsar/arrpc/pull/109
 
 import koffi from "koffi";
+import type { ProcessEntry } from "../../types.ts";
 
 // Load Windows API
 const psapi = koffi.load("psapi.dll");
@@ -80,13 +81,11 @@ const getProcessImageName = (pid: number): string | null => {
 	}
 };
 
-export const getProcesses = async (): Promise<
-	[number, string, string[], undefined][]
-> => {
+export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	const PROCESS_CAPACITY = 4096;
 	const processIds = new Uint32Array(PROCESS_CAPACITY);
 	const bytesNeeded = new Uint32Array(1);
-	const out: [number, string, string[], undefined][] = [];
+	const out: ProcessEntry[] = [];
 
 	const success = EnumProcesses(processIds, processIds.byteLength, bytesNeeded);
 
@@ -99,10 +98,12 @@ export const getProcesses = async (): Promise<
 	for (let i = 0; i < numProcesses; ++i) {
 		const pid = processIds[i];
 		if (pid) {
-			let imageName = getProcessImageName(pid);
-			if (imageName != null) {
-				imageName = imageName.split("\x00")[0]!.trim();
-				out.push([pid, imageName, [], undefined]);
+			const rawName = getProcessImageName(pid);
+			if (rawName !== null) {
+				const cleanName = rawName.split("\x00")[0]?.trim();
+				if (cleanName) {
+					out.push([pid, cleanName, [], undefined]);
+				}
 			}
 		}
 	}

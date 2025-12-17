@@ -1,5 +1,6 @@
 import { readFile, writeFile, stat } from "node:fs/promises";
 import { Logger } from "../logger.ts";
+
 const log = new Logger("downloader", "green").log;
 
 const KEY_MAP: Record<string, string> = {
@@ -18,7 +19,7 @@ const FILTERED_KEYS = new Set([
 	"os",
 ]);
 
-interface GameData {
+interface RawGameData {
 	executables?: {
 		name?: string;
 		os?: string;
@@ -28,47 +29,53 @@ interface GameData {
 	[key: string]: unknown;
 }
 
-interface TransformedGame {
+export interface DetectableGame {
 	e?: {
 		n: string[];
 		a?: string;
 	};
+	i?: string;
+	n?: string;
 	[key: string]: unknown;
 }
 
-export function transformObject(all: GameData[]): TransformedGame[] {
-	return all.reduce((acc: TransformedGame[], game) => {
-		const newGame: TransformedGame = {};
+export function transformObject(all: RawGameData[]): DetectableGame[] {
+	const results: DetectableGame[] = [];
+
+	for (const game of all) {
+		const newGame: DetectableGame = {};
+
 		for (const key in game) {
 			if (FILTERED_KEYS.has(key)) continue;
 			const newKey = KEY_MAP[key] || key;
 			newGame[newKey] = game[key];
 		}
 
-		if (newGame.e && Array.isArray(game.executables)) {
-			if (game.executables.length === 0) return acc;
+		if (Array.isArray(game.executables) && game.executables.length > 0) {
+			const names = game.executables
+				.filter((item) => item.os !== "darwin" && item.name)
+				.map((item) => item.name as string);
 
-			const execs: { n: string[]; a?: string } = {
-				n: game.executables
-					.filter((item) => item.os !== "darwin")
-					.map((item) => item.name)
-					.filter((name): name is string => !!name),
-			};
-
-			const arg = game.executables[0]?.arguments;
-			if (arg) execs.a = arg;
-			newGame.e = execs;
+			if (names.length > 0) {
+				const execs: { n: string[]; a?: string } = { n: names };
+				const arg = game.executables[0]?.arguments;
+				if (arg) execs.a = arg;
+				newGame.e = execs;
+			}
+		} else if (game.executables && game.executables.length === 0) {
+			continue;
 		}
 
-		acc.push(newGame);
-		return acc;
-	}, []);
+		results.push(newGame);
+	}
+	return results;
 }
 
-export async function getDetectableDB(path: string): Promise<TransformedGame[]> {
+export async function getDetectableDB(path: string): Promise<DetectableGame[]> {
 	let fileDate = "";
 	try {
-		fileDate = (await stat(path)).mtime.toUTCString();
+		const stats = await stat(path);
+		fileDate = stats.mtime.toUTCString();
 	} catch {}
 
 	try {
@@ -89,16 +96,18 @@ export async function getDetectableDB(path: string): Promise<TransformedGame[]> 
 			return JSON.parse(data);
 		}
 
-		if (!res.ok) throw new Error(`Fetch failed: ${res.statusText}`);
+		if (!res.ok) throw new Error(`Fetch failed: ${res.statusText} (${res.status})`);
 
-		const jsonData = (await res.json()) as GameData[];
+		const jsonData = (await res.json()) as RawGameData[];
 		const transformed = transformObject(jsonData);
-		await writeFile(path, JSON.stringify(transformed));
 
+		await writeFile(path, JSON.stringify(transformed));
 		log("Updated detectable DB");
+
 		return transformed;
-	} catch (e: any) {
-		log("Failed to update detectable DB, trying local.", e.message);
+	} catch (e: unknown) {
+		const msg = e instanceof Error ? e.message : String(e);
+		log("Failed to update detectable DB, trying local.", msg);
 		try {
 			const data = await readFile(path, "utf8");
 			return JSON.parse(data);

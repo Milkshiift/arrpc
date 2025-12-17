@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-
 import { Logger } from "./logger.ts";
-const log = new Logger().log;
-
-log("arRPC v3.5.0");
-
 import * as Bridge from "./bridge.ts";
 import Server from "./server.ts";
+import type { BridgeMessage } from "./types.ts";
+
+const log = new Logger().log;
+log("arRPC v3.5.0");
 
 try {
 	Bridge.init();
@@ -16,6 +15,6 @@ try {
 
 const server = new Server("./detectable.json");
 
-server.on("activity", (data: any) => Bridge.send(data));
+server.on("activity", (data: BridgeMessage) => Bridge.send(data));
 
 await server.start();

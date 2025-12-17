@@ -1,19 +1,16 @@
 import * as fs from "node:fs";
+import type { ProcessEntry } from "../../types.ts";
 
 const YIELD_AFTER_MS = 10;
+const yieldToEventLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
 
-const yieldToEventLoop = (): Promise<void> =>
-	new Promise((resolve) => setImmediate(resolve));
-
-export const getProcesses = async (): Promise<
-	[number, string, string[], string | undefined][]
-> => {
+export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	try {
 		const pidEntries = await fs.promises.readdir("/proc", {
 			withFileTypes: true,
 		});
 
-		const processes: [number, string, string[], string | undefined][] = [];
+		const processes: ProcessEntry[] = [];
 		let lastYield = performance.now();
 
 		for (const dirent of pidEntries) {
@@ -22,21 +19,22 @@ export const getProcesses = async (): Promise<
 			const code = dirent.name.charCodeAt(0);
 			if (code < 48 || code > 57) continue;
 
-			const pid = +dirent.name;
+			const pid = parseInt(dirent.name, 10);
+			if (Number.isNaN(pid)) continue;
 
 			try {
-				const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+				const procPath = `/proc/${pid}`;
+				const cmdline = fs.readFileSync(`${procPath}/cmdline`, "utf8");
 				if (!cmdline) continue;
 
-				// Check status to avoid Zombies (Z) or Stopped (T) processes
-				const status = fs.readFileSync(`/proc/${pid}/status`, "utf8");
+				const status = fs.readFileSync(`${procPath}/status`, "utf8");
 				if (status.includes("State:\tT") || status.includes("State:\tZ")) {
 					continue;
 				}
 
 				let cwdPath: string | undefined;
 				try {
-					cwdPath = fs.readlinkSync(`/proc/${pid}/cwd`);
+					cwdPath = fs.readlinkSync(`${procPath}/cwd`);
 				} catch {}
 
 				const nullIndex = cmdline.indexOf("\0");
@@ -44,11 +42,10 @@ export const getProcesses = async (): Promise<
 
 				const command = cmdline.substring(0, nullIndex);
 				const argsRaw = cmdline.substring(nullIndex + 1);
-
 				const args = argsRaw.split("\0").filter((x) => x);
 
 				processes.push([pid, command, args, cwdPath]);
-			} catch (_e) {}
+			} catch {}
 
 			if (performance.now() - lastYield > YIELD_AFTER_MS) {
 				await yieldToEventLoop();
@@ -56,8 +53,9 @@ export const getProcesses = async (): Promise<
 			}
 		}
 		return processes;
-	} catch (error: any) {
-		console.error("Process discovery error:", error.message);
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error("Process discovery error:", message);
 		return [];
 	}
 };

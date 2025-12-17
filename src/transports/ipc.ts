@@ -1,6 +1,4 @@
 import { Logger } from "../logger.ts";
-const log = new Logger("ipc", "yellow").log;
-
 import { join } from "node:path";
 import { platform, env } from "node:process";
 import { unlinkSync } from "node:fs";
@@ -11,17 +9,19 @@ import {
 	type Server,
 } from "node:net";
 
+const log = new Logger("ipc", "yellow").log;
+
 const SOCKET_PATH =
 	platform === "win32"
 		? "\\\\?\\pipe\\discord-ipc"
 		: join(
-				env["XDG_RUNTIME_DIR"] ||
-					env["TMPDIR"] ||
-					env["TMP"] ||
-					env["TEMP"] ||
-					"/tmp",
-				"discord-ipc",
-			);
+			env.XDG_RUNTIME_DIR ||
+			env.TMPDIR ||
+			env.TMP ||
+			env.TEMP ||
+			"/tmp",
+			"discord-ipc",
+		);
 
 const Types = {
 	HANDSHAKE: 0,
@@ -30,6 +30,8 @@ const Types = {
 	PING: 3,
 	PONG: 4,
 } as const;
+
+type PacketType = (typeof Types)[keyof typeof Types];
 
 const CloseCodes = {
 	CLOSE_NORMAL: 1000,
@@ -46,6 +48,12 @@ const ErrorCodes = {
 	INVALID_ENCODING: 4005,
 };
 
+export interface IPCSocket extends Socket {
+	clientId?: string;
+	send: (msg: unknown) => void;
+	close: (code?: number, message?: string) => void;
+}
+
 const encode = (type: number, data: unknown): Buffer => {
 	const stringData = JSON.stringify(data);
 	const dataSize = Buffer.byteLength(stringData);
@@ -56,16 +64,7 @@ const encode = (type: number, data: unknown): Buffer => {
 	return buf;
 };
 
-// Extend Socket to include our custom properties
-interface IPCSocket extends Socket {
-	_handshook?: boolean;
-	clientId?: string;
-	_send?: (msg: unknown) => void;
-	send?: (msg: unknown) => void;
-	close?: (code?: number, message?: string) => void;
-}
-
-const processSocketReadable = (socket: IPCSocket): void => {
+const processSocketReadable = (socket: Socket): void => {
 	while (true) {
 		if (socket.readableLength < 8) return;
 
@@ -86,13 +85,14 @@ const processSocketReadable = (socket: IPCSocket): void => {
 			return;
 		}
 
-		if (type < 0 || type >= Object.keys(Types).filter(k => isNaN(Number(k))).length) {
+		const isValidType = Object.values(Types).includes(type as PacketType);
+		if (!isValidType) {
 			log("Invalid IPC packet type", type);
 			socket.destroy();
 			return;
 		}
 
-		let data;
+		let data: object;
 		try {
 			data = JSON.parse(bodyBuffer.toString("utf8"));
 		} catch (e) {
@@ -109,20 +109,9 @@ const processSocketReadable = (socket: IPCSocket): void => {
 				socket.emit("pong", data);
 				break;
 			case Types.HANDSHAKE:
-				if (socket._handshook) {
-					log("Client tried to double handshake");
-					socket.close?.(CloseCodes.CLOSE_ABNORMAL);
-					return;
-				}
-				socket._handshook = true;
 				socket.emit("handshake", data);
 				break;
 			case Types.FRAME:
-				if (!socket._handshook) {
-					log("Client sent frame before handshake");
-					socket.close?.(CloseCodes.CLOSE_ABNORMAL);
-					return;
-				}
 				socket.emit("request", data);
 				break;
 			case Types.CLOSE:
@@ -136,9 +125,8 @@ const processSocketReadable = (socket: IPCSocket): void => {
 const getAvailableSocket = async (): Promise<string> => {
 	for (let i = 0; i < 10; i++) {
 		const path = `${SOCKET_PATH}-${i}`;
-		const socket = createConnection(path);
-
 		const connected = await new Promise<boolean>((resolve) => {
+			const socket = createConnection(path);
 			socket.on("connect", () => {
 				socket.end();
 				resolve(true);
@@ -148,7 +136,7 @@ const getAvailableSocket = async (): Promise<string> => {
 					if (platform !== "win32") {
 						try {
 							unlinkSync(path);
-						} catch (_e) {}
+						} catch {}
 					}
 					resolve(false);
 				} else {
@@ -162,21 +150,18 @@ const getAvailableSocket = async (): Promise<string> => {
 	throw new Error("ran out of tries to find socket");
 };
 
-export default class IPCServer {
-	handlers: {
-		connection: (socket: IPCSocket) => void;
-		message: (socket: IPCSocket, msg: unknown) => void;
-		close: (socket: IPCSocket) => void;
-	};
-	server: Server | null;
+export interface IPCServerHandlers {
+	connection: (socket: IPCSocket) => void;
+	message: (socket: IPCSocket, msg: unknown) => void;
+	close: (socket: IPCSocket) => void;
+}
 
-	constructor(handlers: {
-		connection: (socket: IPCSocket) => void;
-		message: (socket: IPCSocket, msg: unknown) => void;
-		close: (socket: IPCSocket) => void;
-	}) {
+export default class IPCServer {
+	handlers: IPCServerHandlers;
+	server: Server | null = null;
+
+	constructor(handlers: IPCServerHandlers) {
 		this.handlers = handlers;
-		this.server = null;
 		this.onConnection = this.onConnection.bind(this);
 		this.onMessage = this.onMessage.bind(this);
 	}
@@ -195,28 +180,35 @@ export default class IPCServer {
 		});
 	}
 
-	onConnection(socket: IPCSocket): void {
+	onConnection(rawSocket: Socket): void {
 		log("new connection!");
+		const socket = rawSocket as IPCSocket;
 
 		socket.on("readable", () => {
 			try {
 				processSocketReadable(socket);
-			} catch (e: any) {
-				log("error whilst reading", e);
+			} catch (e: unknown) {
+				const message = e instanceof Error ? e.message : String(e);
+				log("error whilst reading", message);
 				socket.end(
 					encode(Types.CLOSE, {
 						code: CloseCodes.CLOSE_UNSUPPORTED,
-						message: e.message,
+						message,
 					}),
 				);
 				socket.destroy();
 			}
 		});
 
-		socket.once("handshake", (params: any) => {
-			if (process.env["ARRPC_DEBUG"]) log("handshake:", params);
+		let handshook = false;
 
-			const ver = parseInt(params.v ?? 1, 10);
+		socket.once("handshake", (params: { v?: string; client_id?: string }) => {
+			if (handshook) return;
+			handshook = true;
+
+			if (process.env.ARRPC_DEBUG) log("handshake:", params);
+
+			const ver = parseInt(params.v ?? "1", 10);
 			const clientId = params.client_id ?? "";
 
 			socket.close = (code = CloseCodes.CLOSE_NORMAL, message = "") => {
@@ -237,17 +229,15 @@ export default class IPCServer {
 			}
 
 			socket.on("error", (e) => log("socket error", e));
-			socket.on("close", (e) => {
-				log("socket closed", e);
+			socket.on("close", (hadError) => {
+				log("socket closed", hadError);
 				this.handlers.close(socket);
 			});
 
-			socket.on("request", this.onMessage.bind(this, socket));
+			socket.on("request", (data) => this.onMessage(socket, data));
 
-			// @ts-ignore - assigning custom property
-			socket._send = socket.send;
 			socket.send = (msg: unknown) => {
-				if (process.env["ARRPC_DEBUG"]) log("sending", msg);
+				if (process.env.ARRPC_DEBUG) log("sending", msg);
 				if (socket.writable) socket.write(encode(Types.FRAME, msg));
 			};
 
@@ -257,7 +247,7 @@ export default class IPCServer {
 	}
 
 	onMessage(socket: IPCSocket, msg: unknown): void {
-		if (process.env["ARRPC_DEBUG"]) log("message", msg);
+		if (process.env.ARRPC_DEBUG) log("message", msg);
 		this.handlers.message(socket, msg);
 	}
 }

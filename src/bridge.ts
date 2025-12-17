@@ -1,20 +1,14 @@
 import { Logger } from "./logger.ts";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { BridgeMessage } from "./types.ts";
 
 const log = new Logger("bridge", "cyan").log;
 
-interface Message {
-	socketId: string;
-	activity: unknown | null;
-	[key: string]: unknown;
-}
-
-const lastMsg = new Map<string, Message>();
+const lastMsg = new Map<string, BridgeMessage>();
 let wss: WebSocketServer | null = null;
 
-export const send = (msg: Message): void => {
+export const send = (msg: BridgeMessage): void => {
 	// If activity is null, the application has stopped/disconnected.
-	// Remove from cache to prevent leaks and reconnecting clients seeing dead status.
 	if (msg.activity === null) {
 		lastMsg.delete(msg.socketId);
 	} else {
@@ -23,16 +17,19 @@ export const send = (msg: Message): void => {
 
 	if (wss) {
 		const payload = JSON.stringify(msg);
-		wss.clients.forEach((x: WebSocket) => {
-			if (x.readyState === 1) x.send(payload);
-		});
+		for (const client of wss.clients) {
+			if (client.readyState === 1) {
+				client.send(payload);
+			}
+		}
 	}
 };
 
 export const init = (): void => {
 	let port = 1337;
-	if (process.env["ARRPC_BRIDGE_PORT"]) {
-		const parsed = parseInt(process.env["ARRPC_BRIDGE_PORT"], 10);
+	const envPort = process.env.ARRPC_BRIDGE_PORT;
+	if (envPort) {
+		const parsed = parseInt(envPort, 10);
 		if (!Number.isNaN(parsed)) port = parsed;
 	}
 
@@ -51,7 +48,7 @@ export const init = (): void => {
 	wss.on("connection", (socket: WebSocket) => {
 		log("web connected");
 
-		for (const [_, msg] of lastMsg) {
+		for (const msg of lastMsg.values()) {
 			if (msg.activity != null) socket.send(JSON.stringify(msg));
 		}
 
