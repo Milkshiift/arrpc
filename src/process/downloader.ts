@@ -3,71 +3,77 @@ import { Logger } from "../logger.ts";
 
 const log = new Logger("downloader", "green").log;
 
-const KEY_MAP: Record<string, string> = {
-	executables: "e",
-	arguments: "a",
-	name: "n",
-	id: "i",
-};
-
-const FILTERED_KEYS = new Set([
-	"hook",
-	"overlay",
-	"overlay_compatibility_hook",
-	"aliases",
-	"is_launcher",
-]);
-
-interface RawGameData {
-	executables?: {
-		name?: string;
-		os?: string;
-		arguments?: string;
-		[key: string]: unknown;
-	}[];
+interface RawExecutable {
+	name: string;
+	os: string;
+	arguments?: string;
 	[key: string]: unknown;
 }
 
-export interface DetectableGame {
-	e?: {
-		n: string[];
-		a?: string;
-	};
-	i?: string;
-	n?: string;
+interface RawGameData {
+	id: string;
+	name: string;
+	executables?: RawExecutable[];
 	[key: string]: unknown;
+}
+
+export interface DetectableExecutable {
+	n: string;
+	a?: string;
+	s?: 1;
+}
+
+export interface DetectableGame {
+	i: string;
+	n: string;
+	e?: DetectableExecutable[];
 }
 
 export function transformObject(all: RawGameData[]): DetectableGame[] {
 	const results: DetectableGame[] = [];
+	const currentPlatform = process.platform;
 
 	for (const game of all) {
-		const newGame: DetectableGame = {};
+		if (!game.id || !game.name) continue;
 
-		for (const key in game) {
-			if (FILTERED_KEYS.has(key)) continue;
-			const newKey = KEY_MAP[key] || key;
-			newGame[newKey] = game[key];
-		}
+		const minifiedGame: DetectableGame = {
+			i: game.id,
+			n: game.name,
+		};
 
 		if (Array.isArray(game.executables) && game.executables.length > 0) {
-			const names = new Set<string>();
-			let argument: string | undefined;
+			const processedExecs: DetectableExecutable[] = [];
 
-			for (const item of game.executables) {
-				if (item.name) {
-					names.add(item.name);
-					if (!argument && item.arguments) {
-						argument = item.arguments;
-					}
+			for (const exec of game.executables) {
+				if (!exec.name) continue;
+
+				if (exec.os) {
+					const isNative = exec.os === currentPlatform;
+					const isProton = currentPlatform === "linux" && exec.os === "win32";
+					if (!isNative && !isProton) continue;
 				}
+
+				let name = exec.name;
+				let isStrict: 1 | undefined;
+
+				if (name.startsWith(">")) {
+					isStrict = 1;
+					name = name.slice(1);
+				}
+
+				name = name.toLowerCase();
+
+				const minExec: DetectableExecutable = { n: name };
+
+				if (isStrict) minExec.s = 1;
+				if (exec.arguments) minExec.a = exec.arguments;
+
+				processedExecs.push(minExec);
 			}
 
-			if (names.size > 0) {
-				const execs: { n: string[]; a?: string } = { n: Array.from(names) };
-				if (argument) execs.a = argument;
-				newGame.e = execs;
-				results.push(newGame);
+			if (processedExecs.length > 0) {
+				minifiedGame.e = processedExecs;
+				results.push(minifiedGame);
 			}
 		}
 	}
@@ -82,12 +88,11 @@ export async function getDetectableDB(path: string): Promise<DetectableGame[]> {
 	} catch {}
 
 	try {
+		log("Checking for detectable DB updates...");
 		const res = await fetch(
 			"https://discord.com/api/v10/applications/detectable",
 			{
 				headers: {
-					"User-Agent":
-						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.3",
 					"If-Modified-Since": fileDate,
 				},
 			},
@@ -95,25 +100,22 @@ export async function getDetectableDB(path: string): Promise<DetectableGame[]> {
 
 		if (res.status === 304) {
 			log("Detectable DB is up to date");
-			const data = await readFile(path, "utf8");
-			return JSON.parse(data);
+			return JSON.parse(await readFile(path, "utf8"));
 		}
 
-		if (!res.ok) throw new Error(`Fetch failed: ${res.statusText} (${res.status})`);
+		if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
 
 		const jsonData = (await res.json()) as RawGameData[];
 		const transformed = transformObject(jsonData);
 
 		await writeFile(path, JSON.stringify(transformed));
-		log("Updated detectable DB");
+		log(`Updated DB: ${transformed.length}.`);
 
 		return transformed;
-	} catch (e: unknown) {
-		const msg = e instanceof Error ? e.message : String(e);
-		log("Failed to update detectable DB, trying local.", msg);
+	} catch (e) {
+		log("Update failed, using local.", e);
 		try {
-			const data = await readFile(path, "utf8");
-			return JSON.parse(data);
+			return JSON.parse(await readFile(path, "utf8"));
 		} catch {
 			return [];
 		}

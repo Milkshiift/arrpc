@@ -1,5 +1,5 @@
 import { Logger } from "../logger.ts";
-import { getDetectableDB, type DetectableGame } from "./downloader.ts";
+import { getDetectableDB, type DetectableGame, type DetectableExecutable } from "./downloader.ts";
 import type { ProcessEntry } from "../types.ts";
 
 const log = new Logger("process", "red").log;
@@ -45,11 +45,11 @@ export default class ProcessServer {
 	pids: Record<string, number> = {};
 	detectablePath: string;
 	DetectableDB: DetectableGame[] = [];
+
 	detectionMap: Map<string, DetectableGame[]> = new Map();
 
 	private isScanning = false;
 
-	// Cache for path variations
 	private pathCache: Map<string, string[]> = new Map();
 
 	constructor(handlers: ProcessServerHandlers, detectablePath: string) {
@@ -62,12 +62,12 @@ export default class ProcessServer {
 		this.DetectableDB = await getDetectableDB(this.detectablePath);
 		this.detectionMap.clear();
 
-		for (const element of this.DetectableDB) {
-			if (element.e?.n) {
-				for (const name of element.e.n) {
-					const key = name.startsWith(">") ? name.slice(1) : name;
+		for (const game of this.DetectableDB) {
+			if (game.e && Array.isArray(game.e)) {
+				for (const exec of game.e) {
+					const key = exec.n;
 					const list = this.detectionMap.get(key) ?? [];
-					list.push(element);
+					list.push(game);
 					this.detectionMap.set(key, list);
 				}
 			}
@@ -99,7 +99,7 @@ export default class ProcessServer {
 
 			for (const mod of modifiers) {
 				if (basePath.includes(mod)) {
-					variations.push(basePath.replace(mod, ""));
+					variations.push(basePath.replaceAll(mod, ""));
 				}
 			}
 		}
@@ -116,23 +116,25 @@ export default class ProcessServer {
 	}
 
 	private matchExecutable(
-		executables: DetectableGame["e"],
+		executables: DetectableExecutable[],
 		possiblePaths: string[],
 		args: string[] | undefined,
 		cwdPath: string | undefined,
 	): boolean {
-		if (!executables) return false;
+		if (!executables || !Array.isArray(executables)) return false;
 
-		const argsMatch = !executables.a || args?.includes(executables.a);
-		if (!argsMatch) return false;
+		return executables.some((exec) => {
+			const argsMatch = !exec.a || args?.includes(exec.a);
+			if (!argsMatch) return false;
 
-		return executables.n.some((name) => {
-			if (name.startsWith(">")) {
-				return name.slice(1) === possiblePaths[0];
+			const name = exec.n;
+			const isStrict = exec.s === 1;
+
+			if (isStrict) {
+				return name === possiblePaths[0];
 			}
 
-			// Loose match: check if any generated path variation matches the DB name
-			// OR if the DB name is contained within the full path
+			// Loose match: check variations or partial path matches
 			return possiblePaths.some(
 				(path) =>
 					name === path ||
@@ -160,6 +162,7 @@ export default class ProcessServer {
 
 				const potentialMatches = new Set<DetectableGame>();
 
+				// Find all games that *might* be associated with this executable name
 				for (const possiblePath of possiblePaths) {
 					const matches = this.detectionMap.get(possiblePath);
 					if (matches) {
@@ -167,11 +170,12 @@ export default class ProcessServer {
 					}
 				}
 
-				for (const element of potentialMatches) {
+				// Verify the specific matching rules (arguments, strictness)
+				for (const game of potentialMatches) {
 					try {
-						const { e, i, n } = element;
-						if (this.matchExecutable(e, possiblePaths, args, cwdPath) && i && n) {
-							detectedGames.add({ id: i, name: n, pid });
+						if (game.e && this.matchExecutable(game.e, possiblePaths, args, cwdPath) && game.i && game.n) {
+							detectedGames.add({ id: game.i, name: game.n, pid });
+							break;
 						}
 					} catch (error) {
 						log("Error during matching:", error);
@@ -229,6 +233,9 @@ export default class ProcessServer {
 		for (const id in this.timestamps) {
 			if (!activeIds.has(id)) {
 				log("lost game!", this.names[id]);
+
+				const closingPid = this.pids[id];
+
 				delete this.timestamps[id];
 				delete this.names[id];
 				delete this.pids[id];
@@ -239,7 +246,7 @@ export default class ProcessServer {
 						cmd: "SET_ACTIVITY",
 						args: {
 							activity: null,
-							pid: this.pids[id],
+							pid: closingPid,
 						},
 					},
 				);

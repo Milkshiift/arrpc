@@ -12,7 +12,7 @@ interface ServerSocket {
 	clientId?: string;
 	send: (msg: unknown) => void;
 	close?: () => void;
-	transportType: 'ipc' | 'websocket';
+	transportType: "ipc" | "websocket";
 }
 
 type TransportSocket = IPCSocket | RPCWebSocket;
@@ -46,13 +46,13 @@ export default class RPCServer extends EventEmitter {
 		const onClose = this.onClose.bind(this);
 
 		this.ipc = new IPCServer({
-			connection: (socket) => onConnection(socket, 'ipc'),
+			connection: (socket) => onConnection(socket, "ipc"),
 			message: (socket, msg) => onMessage(socket, msg as RPCMessage),
 			close: (socket) => onClose(socket),
 		});
 
 		this.ws = new WSServer({
-			connection: (socket) => onConnection(socket, 'websocket'),
+			connection: (socket) => onConnection(socket, "websocket"),
 			message: (socket, msg) => onMessage(socket, msg as RPCMessage),
 			close: (socket) => onClose(socket),
 		});
@@ -73,11 +73,21 @@ export default class RPCServer extends EventEmitter {
 						const payload = msg as RPCMessage;
 						this.emit("message", { socket: socket, ...payload });
 
-						if (payload.cmd === "SET_ACTIVITY" && payload.args.activity) {
+						if (payload.cmd === "SET_ACTIVITY") {
+							const { activity, pid } = payload.args;
+
+							const normalizedActivity = activity
+								? {
+									type: 0,
+									flags: 0,
+									...activity,
+								}
+								: activity;
+
 							this.emit("activity", {
-								activity: payload.args.activity,
-								pid: payload.args.pid,
-								socketId: socket.socketId
+								activity: normalizedActivity,
+								pid,
+								socketId: socket.socketId,
 							});
 						}
 					},
@@ -87,7 +97,10 @@ export default class RPCServer extends EventEmitter {
 		}
 	}
 
-	private getOrCreateServerSocket(socket: TransportSocket, type: 'ipc' | 'websocket'): ServerSocket {
+	private getOrCreateServerSocket(
+		socket: TransportSocket,
+		type: "ipc" | "websocket",
+	): ServerSocket {
 		const existing = this.socketMap.get(socket);
 		if (existing) return existing;
 
@@ -96,20 +109,20 @@ export default class RPCServer extends EventEmitter {
 			clientId: socket.clientId,
 			transportType: type,
 			send: (msg) => {
-				if (type === 'ipc') (socket as IPCSocket).send(msg);
+				if (type === "ipc") (socket as IPCSocket).send(msg);
 				else (socket as RPCWebSocket).sendPayload(msg);
 			},
 			close: () => {
-				if (type === 'ipc') (socket as IPCSocket).close();
+				if (type === "ipc") (socket as IPCSocket).close();
 				else (socket as RPCWebSocket).close();
-			}
+			},
 		};
 
 		this.socketMap.set(socket, serverSocket);
 		return serverSocket;
 	}
 
-	onConnection(rawSocket: TransportSocket, type: 'ipc' | 'websocket'): void {
+	onConnection(rawSocket: TransportSocket, type: "ipc" | "websocket"): void {
 		const socket = this.getOrCreateServerSocket(rawSocket, type);
 
 		socket.send({
@@ -160,9 +173,9 @@ export default class RPCServer extends EventEmitter {
 	): Promise<void> {
 		let socket: ServerSocket | undefined;
 
-		if ('transportType' in rawSocket) {
+		if ("transportType" in rawSocket) {
 			socket = rawSocket as ServerSocket;
-		} else if ('socketId' in rawSocket) {
+		} else if ("socketId" in rawSocket) {
 			// Virtual socket from ProcessServer
 			socket = rawSocket as unknown as ServerSocket;
 			if (!socket.send) socket.send = () => {};
@@ -256,9 +269,9 @@ export default class RPCServer extends EventEmitter {
 							data: isValid
 								? { code }
 								: {
-									code: isInvite ? 4011 : 4017,
-									message: `Invalid ${isInvite ? "invite" : "guild template"} id: ${code}`,
-								},
+										code: isInvite ? 4011 : 4017,
+										message: `Invalid ${isInvite ? "invite" : "guild template"} id: ${code}`,
+									},
 							evt: isValid ? null : "ERROR",
 							nonce,
 						});

@@ -23,7 +23,12 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 
 					if (Number.isNaN(pid) || !comm) return null;
 
-					return [pid, comm, [], undefined] as [number, string, string[], undefined];
+					return [pid, comm, [], undefined] as [
+						number,
+						string,
+						string[],
+						undefined,
+					];
 				})
 				.filter((p): p is [number, string, string[], undefined] => Boolean(p));
 			resolve(processes);

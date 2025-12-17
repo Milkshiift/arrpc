@@ -2,7 +2,9 @@ import pc from "picocolors";
 import type { Formatter } from "picocolors/types";
 
 type ColorName = keyof {
-	[K in keyof typeof pc as typeof pc[K] extends Formatter ? K : never]: unknown;
+	[K in keyof typeof pc as (typeof pc)[K] extends Formatter
+		? K
+		: never]: unknown;
 };
 
 export class Logger {

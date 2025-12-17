@@ -46,7 +46,9 @@ export default class WSServer {
 					const http = createServer();
 					const wss = new WebSocketServer({ server: http });
 
-					wss.on("connection", (ws, req) => this.onConnection(ws as RPCWebSocket, req));
+					wss.on("connection", (ws, req) =>
+						this.onConnection(ws as RPCWebSocket, req),
+					);
 
 					http.on("error", (e: SystemError) => {
 						wss.removeAllListeners();

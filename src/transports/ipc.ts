@@ -15,13 +15,9 @@ const SOCKET_PATH =
 	platform === "win32"
 		? "\\\\.\\pipe\\discord-ipc"
 		: join(
-			env.XDG_RUNTIME_DIR ||
-			env.TMPDIR ||
-			env.TMP ||
-			env.TEMP ||
-			"/tmp",
-			"discord-ipc",
-		);
+				env.XDG_RUNTIME_DIR || env.TMPDIR || env.TMP || env.TEMP || "/tmp",
+				"discord-ipc",
+			);
 
 const Types = {
 	HANDSHAKE: 0,

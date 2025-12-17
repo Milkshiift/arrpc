@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import type { ProcessEntry } from "../../types.ts";
 
 const YIELD_AFTER_MS = 10;
-const yieldToEventLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
+const yieldToEventLoop = (): Promise<void> =>
+	new Promise((r) => setImmediate(r));
 
 export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	try {
