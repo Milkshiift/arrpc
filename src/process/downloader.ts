@@ -16,7 +16,6 @@ const FILTERED_KEYS = new Set([
 	"overlay_compatibility_hook",
 	"aliases",
 	"is_launcher",
-	"os",
 ]);
 
 interface RawGameData {
@@ -52,21 +51,25 @@ export function transformObject(all: RawGameData[]): DetectableGame[] {
 		}
 
 		if (Array.isArray(game.executables) && game.executables.length > 0) {
-			const names = game.executables
-				.filter((item) => item.os !== "darwin" && item.name)
-				.map((item) => item.name as string);
+			const names = new Set<string>();
+			let argument: string | undefined;
 
-			if (names.length > 0) {
-				const execs: { n: string[]; a?: string } = { n: names };
-				const arg = game.executables[0]?.arguments;
-				if (arg) execs.a = arg;
-				newGame.e = execs;
+			for (const item of game.executables) {
+				if (item.name) {
+					names.add(item.name);
+					if (!argument && item.arguments) {
+						argument = item.arguments;
+					}
+				}
 			}
-		} else if (game.executables && game.executables.length === 0) {
-			continue;
-		}
 
-		results.push(newGame);
+			if (names.size > 0) {
+				const execs: { n: string[]; a?: string } = { n: Array.from(names) };
+				if (argument) execs.a = argument;
+				newGame.e = execs;
+				results.push(newGame);
+			}
+		}
 	}
 	return results;
 }

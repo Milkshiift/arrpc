@@ -47,6 +47,8 @@ export default class ProcessServer {
 	DetectableDB: DetectableGame[] = [];
 	detectionMap: Map<string, DetectableGame[]> = new Map();
 
+	private isScanning = false;
+
 	// Cache for path variations
 	private pathCache: Map<string, string[]> = new Map();
 
@@ -80,24 +82,17 @@ export default class ProcessServer {
 	}
 
 	generatePossiblePaths(path: string): string[] {
-		// Safe Map Access
 		const cached = this.pathCache.get(path);
 		if (cached) return cached;
 
 		const normalizedPath = path.toLowerCase();
 		const splitPath = normalizedPath.replaceAll("\\", "/").split("/");
 
-		// Safe Array Access
-		const firstPart = splitPath[0] ?? "";
-		if (firstPart === "" || /^[a-z]:$/.test(firstPart)) {
-			splitPath.shift();
-		}
-
 		const variations: string[] = [];
 		const modifiers = ["64", ".x64", "x64", "_64"];
 
-		for (let i = 0; i < splitPath.length || i === 1; i++) {
-			const basePath = splitPath.slice(-i).join("/");
+		for (let i = 0; i < splitPath.length; i++) {
+			const basePath = splitPath.slice(-i - 1).join("/");
 			if (!basePath) continue;
 
 			variations.push(basePath);
@@ -135,6 +130,9 @@ export default class ProcessServer {
 			if (name.startsWith(">")) {
 				return name.slice(1) === possiblePaths[0];
 			}
+
+			// Loose match: check if any generated path variation matches the DB name
+			// OR if the DB name is contained within the full path
 			return possiblePaths.some(
 				(path) =>
 					name === path ||
@@ -144,6 +142,9 @@ export default class ProcessServer {
 	}
 
 	async scan(): Promise<void> {
+		if (this.isScanning) return;
+		this.isScanning = true;
+
 		const startTime = DEBUG ? performance.now() : 0;
 		let processCount = 0;
 
@@ -185,6 +186,8 @@ export default class ProcessServer {
 			}
 		} catch (error: unknown) {
 			log("Worker error:", error instanceof Error ? error.message : error);
+		} finally {
+			this.isScanning = false;
 		}
 	}
 

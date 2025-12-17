@@ -5,7 +5,7 @@ import type { ProcessEntry } from "../../types.ts";
 
 export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	return new Promise((resolve) => {
-		exec("ps -awwx -o pid=,command=", (error, stdout, stderr) => {
+		exec("ps -awwx -o pid=,comm=", (error, stdout, stderr) => {
 			if (error || stderr) {
 				resolve([]);
 				return;
@@ -13,12 +13,17 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 			const lines = stdout.trim().split("\n");
 			const processes = lines
 				.map((line) => {
-					const match = line.trim().match(/^(\d+)\s+(.*)$/);
-					if (!match || !match[1] || !match[2]) return null;
-					const pid = +match[1];
-					const fullCmd = match[2];
-					const [command, ...args] = fullCmd.split(" ");
-					return [pid, command, args, undefined] as [number, string, string[], undefined];
+					const trimmed = line.trim();
+					const splitIndex = trimmed.indexOf(" ");
+					if (splitIndex === -1) return null;
+
+					const pidStr = trimmed.substring(0, splitIndex);
+					const comm = trimmed.substring(splitIndex + 1).trim();
+					const pid = parseInt(pidStr, 10);
+
+					if (Number.isNaN(pid) || !comm) return null;
+
+					return [pid, comm, [], undefined] as [number, string, string[], undefined];
 				})
 				.filter((p): p is [number, string, string[], undefined] => Boolean(p));
 			resolve(processes);

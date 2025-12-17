@@ -7,7 +7,7 @@ import type { Activity } from "./types.ts";
 let socketIdCounter = 0;
 
 interface ServerSocket {
-	socketId: number;
+	socketId: string;
 	lastPid?: number;
 	clientId?: string;
 	send: (msg: unknown) => void;
@@ -92,7 +92,7 @@ export default class RPCServer extends EventEmitter {
 		if (existing) return existing;
 
 		const serverSocket: ServerSocket = {
-			socketId: socketIdCounter++,
+			socketId: `socket-${socketIdCounter++}`,
 			clientId: socket.clientId,
 			transportType: type,
 			send: (msg) => {
@@ -147,7 +147,7 @@ export default class RPCServer extends EventEmitter {
 		this.emit("activity", {
 			activity: null,
 			pid: socket.lastPid,
-			socketId: socket.socketId.toString(),
+			socketId: socket.socketId,
 		});
 
 		this.emit("close", socket);
@@ -184,7 +184,7 @@ export default class RPCServer extends EventEmitter {
 
 			case "SET_ACTIVITY": {
 				const { activity, pid } = args;
-				const sId = socket.socketId.toString();
+				const sId = socket.socketId;
 
 				if (!activity) {
 					socket.send({ cmd, data: null, evt: null, nonce });
@@ -202,7 +202,7 @@ export default class RPCServer extends EventEmitter {
 				const metadata: Record<string, unknown> = {};
 				const extra: Record<string, unknown> = {};
 
-				if (buttons) {
+				if (buttons && Array.isArray(buttons)) {
 					metadata.button_urls = buttons.map((x) => x.url);
 					extra.buttons = buttons.map((x) => x.label);
 				}
@@ -211,7 +211,7 @@ export default class RPCServer extends EventEmitter {
 					for (const x in timestamps) {
 						const key = x as keyof typeof timestamps;
 						const tsValue = timestamps[key];
-						if (tsValue !== undefined && String(Date.now()).length - String(tsValue).length > 2) {
+						if (tsValue !== undefined && tsValue > 0 && tsValue < 32503680000) {
 							timestamps[key] = Math.floor(1000 * tsValue);
 						}
 					}
@@ -250,17 +250,19 @@ export default class RPCServer extends EventEmitter {
 				const code = args.code;
 
 				const callback = (isValid = true) => {
-					socket?.send({
-						cmd,
-						data: isValid
-							? { code }
-							: {
-								code: isInvite ? 4011 : 4017,
-								message: `Invalid ${isInvite ? "invite" : "guild template"} id: ${code}`,
-							},
-						evt: isValid ? null : "ERROR",
-						nonce,
-					});
+					try {
+						socket?.send({
+							cmd,
+							data: isValid
+								? { code }
+								: {
+									code: isInvite ? 4011 : 4017,
+									message: `Invalid ${isInvite ? "invite" : "guild template"} id: ${code}`,
+								},
+							evt: isValid ? null : "ERROR",
+							nonce,
+						});
+					} catch {}
 				};
 				this.emit(isInvite ? "invite" : "guild-template", code, callback);
 				break;
@@ -276,12 +278,14 @@ export default class RPCServer extends EventEmitter {
 					});
 				} else {
 					this.emit("link", args, (success: boolean) => {
-						socket?.send({
-							cmd,
-							data: success ? null : { code: 1001 },
-							evt: success ? null : "ERROR",
-							nonce,
-						});
+						try {
+							socket?.send({
+								cmd,
+								data: success ? null : { code: 1001 },
+								evt: success ? null : "ERROR",
+								nonce,
+							});
+						} catch {}
 					});
 				}
 				break;

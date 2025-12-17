@@ -13,7 +13,7 @@ const log = new Logger("ipc", "yellow").log;
 
 const SOCKET_PATH =
 	platform === "win32"
-		? "\\\\?\\pipe\\discord-ipc"
+		? "\\\\.\\pipe\\discord-ipc"
 		: join(
 			env.XDG_RUNTIME_DIR ||
 			env.TMPDIR ||

@@ -4,37 +4,35 @@ import koffi from "koffi";
 import type { ProcessEntry } from "../../types.ts";
 
 // Load Windows API
+// EnumProcesses is in K32 on newer windows, but PSAPI is safer for compat.
 const psapi = koffi.load("psapi.dll");
-// const kernel32 = koffi.load("kernel32.dll");
 const ntdll = koffi.load("ntdll.dll");
 
-// Define Alias
-// const _DWORD = koffi.alias("DWORD", "uint32_t");
-// const _BOOL = koffi.alias("BOOL", "int32_t");
 const HANDLE = koffi.pointer("HANDLE", koffi.opaque());
 
-// const UNICODE_STRING = koffi.struct("UNICODE_STRING", {
-// 	Length: "uint16",
-// 	MaximumLength: "uint16",
-// 	Buffer: HANDLE,
-// });
+// FIX: Define struct correctly with types that allow reading length
+const UNICODE_STRING = koffi.struct("UNICODE_STRING", {
+	Length: "uint16",
+	MaximumLength: "uint16",
+	Buffer: koffi.pointer("Buffer", "char"), // Treat as char* for buffer access
+});
 
-// const _SYSTEM_PROCESS_ID_INFORMATION = koffi.struct(
-// 	"SYSTEM_PROCESS_ID_INFORMATION",
-// 	{
-// 		ProcessId: HANDLE,
-// 		ImageName: UNICODE_STRING,
-// 	},
-// );
+const _SYSTEM_PROCESS_ID_INFORMATION = koffi.struct(
+	"SYSTEM_PROCESS_ID_INFORMATION",
+	{
+		ProcessId: HANDLE,
+		ImageName: UNICODE_STRING,
+	},
+);
 
 const EnumProcesses = psapi.func(
 	"BOOL __stdcall EnumProcesses(_Out_ DWORD *lpidProcess, DWORD cb, _Out_ DWORD *lpcbNeeded)",
 );
-// const _GetLastError = kernel32.func("DWORD GetLastError()");
+
 const NtQuerySystemInformation = ntdll.func(
 	"NtQuerySystemInformation",
 	"int32",
-	["int32", "SYSTEM_PROCESS_ID_INFORMATION*", "uint32", HANDLE],
+	["int32", _SYSTEM_PROCESS_ID_INFORMATION, "uint32", HANDLE],
 );
 
 const SystemProcessIdInformation = 88;
@@ -59,7 +57,7 @@ const getProcessImageName = (pid: number): string | null => {
 		const result = NtQuerySystemInformation(
 			SystemProcessIdInformation,
 			info,
-			24,
+			24, // Size of structure roughly
 			null,
 		);
 
@@ -68,7 +66,8 @@ const getProcessImageName = (pid: number): string | null => {
 		}
 
 		if (NT_SUCCESS(result)) {
-			return buffer.subarray(0, buffer.length).toString("utf16le");
+			const lengthBytes = info.ImageName.Length;
+			return buffer.subarray(0, lengthBytes).toString("utf16le");
 		}
 
 		if (bufferSize >= 0xffff) {
@@ -95,12 +94,13 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 
 	if (bytesNeeded[0] === undefined) return [];
 	const numProcesses = bytesNeeded[0] / 4;
+
 	for (let i = 0; i < numProcesses; ++i) {
 		const pid = processIds[i];
 		if (pid) {
 			const rawName = getProcessImageName(pid);
 			if (rawName !== null) {
-				const cleanName = rawName.split("\x00")[0]?.trim();
+				const cleanName = rawName.trim();
 				if (cleanName) {
 					out.push([pid, cleanName, [], undefined]);
 				}

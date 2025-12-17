@@ -38,7 +38,12 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 				} catch {}
 
 				const nullIndex = cmdline.indexOf("\0");
-				if (nullIndex === -1) continue;
+				if (nullIndex === -1) {
+					if (cmdline.length > 0) {
+						processes.push([pid, cmdline, [], cwdPath]);
+					}
+					continue;
+				}
 
 				const command = cmdline.substring(0, nullIndex);
 				const argsRaw = cmdline.substring(nullIndex + 1);

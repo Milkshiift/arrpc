@@ -13,7 +13,7 @@ try {
 	log("Bridge failed to start", e);
 }
 
-const server = new Server("./detectable.json");
+const server = new Server(process.env.ARRPC_DETECTABLE_PATH ?? "./detectable.json");
 
 server.on("activity", (data: BridgeMessage) => Bridge.send(data));
 
