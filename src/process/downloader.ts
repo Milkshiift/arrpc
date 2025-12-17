@@ -1,8 +1,8 @@
 import { readFile, writeFile, stat } from "node:fs/promises";
-import { Logger } from "../logger.js";
+import { Logger } from "../logger.ts";
 const log = new Logger("downloader", "green").log;
 
-const KEY_MAP = {
+const KEY_MAP: Record<string, string> = {
 	executables: "e",
 	arguments: "a",
 	name: "n",
@@ -18,25 +18,44 @@ const FILTERED_KEYS = new Set([
 	"os",
 ]);
 
-export function transformObject(all) {
-	return all.reduce((acc, game) => {
-		const newGame = {};
+interface GameData {
+	executables?: {
+		name?: string;
+		os?: string;
+		arguments?: string;
+		[key: string]: unknown;
+	}[];
+	[key: string]: unknown;
+}
+
+interface TransformedGame {
+	e?: {
+		n: string[];
+		a?: string;
+	};
+	[key: string]: unknown;
+}
+
+export function transformObject(all: GameData[]): TransformedGame[] {
+	return all.reduce((acc: TransformedGame[], game) => {
+		const newGame: TransformedGame = {};
 		for (const key in game) {
 			if (FILTERED_KEYS.has(key)) continue;
 			const newKey = KEY_MAP[key] || key;
 			newGame[newKey] = game[key];
 		}
 
-		if (newGame.e) {
-			if (newGame.e.length === 0) return acc;
+		if (newGame.e && Array.isArray(game.executables)) {
+			if (game.executables.length === 0) return acc;
 
-			const execs = {
-				n: newGame.e
+			const execs: { n: string[]; a?: string } = {
+				n: game.executables
 					.filter((item) => item.os !== "darwin")
-					.map((item) => item.name),
+					.map((item) => item.name)
+					.filter((name): name is string => !!name),
 			};
 
-			const arg = newGame.e[0]?.arguments;
+			const arg = game.executables[0]?.arguments;
 			if (arg) execs.a = arg;
 			newGame.e = execs;
 		}
@@ -46,7 +65,7 @@ export function transformObject(all) {
 	}, []);
 }
 
-export async function getDetectableDB(path) {
+export async function getDetectableDB(path: string): Promise<TransformedGame[]> {
 	let fileDate = "";
 	try {
 		fileDate = (await stat(path)).mtime.toUTCString();
@@ -72,13 +91,13 @@ export async function getDetectableDB(path) {
 
 		if (!res.ok) throw new Error(`Fetch failed: ${res.statusText}`);
 
-		const jsonData = await res.json();
+		const jsonData = (await res.json()) as GameData[];
 		const transformed = transformObject(jsonData);
 		await writeFile(path, JSON.stringify(transformed));
 
 		log("Updated detectable DB");
 		return transformed;
-	} catch (e) {
+	} catch (e: any) {
 		log("Failed to update detectable DB, trying local.", e.message);
 		try {
 			const data = await readFile(path, "utf8");

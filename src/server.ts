@@ -1,13 +1,47 @@
 import { EventEmitter } from "node:events";
 
-import IPCServer from "./transports/ipc.js";
-import WSServer from "./transports/websocket.js";
-import ProcessServer from "./process/index.js";
+import IPCServer from "./transports/ipc.ts";
+import WSServer from "./transports/websocket.ts";
+import ProcessServer from "./process/index.ts";
 
 let socketId = 0;
 
+interface RPCServerSocket {
+	socketId: number;
+	lastPid?: number;
+	clientId?: string;
+	send: (msg: unknown) => void;
+	close?: () => void;
+	[key: string]: unknown;
+}
+
+interface Activity {
+	buttons?: { url: string; label: string }[];
+	timestamps?: Record<string, number>;
+	instance?: boolean;
+	[key: string]: unknown;
+}
+
+interface RPCMessage {
+	cmd: string;
+	args: {
+		activity?: Activity;
+		pid?: number;
+		code?: string;
+		type?: string;
+		[key: string]: unknown;
+	};
+	nonce: string | null;
+	socket?: RPCServerSocket;
+}
+
 export default class RPCServer extends EventEmitter {
-	constructor(detectablePath) {
+	detectablePath: string;
+	ipc: IPCServer;
+	ws: WSServer;
+	processServer?: ProcessServer;
+
+	constructor(detectablePath: string) {
 		super();
 		this.detectablePath = detectablePath;
 
@@ -16,16 +50,16 @@ export default class RPCServer extends EventEmitter {
 		this.onClose = this.onClose.bind(this);
 
 		const handlers = {
-			connection: this.onConnection,
-			message: this.onMessage,
-			close: this.onClose,
+			connection: this.onConnection as unknown as (socket: any) => void,
+			message: this.onMessage as unknown as (socket: any, msg: unknown) => void,
+			close: this.onClose as unknown as (socket: any) => void,
 		};
 
 		this.ipc = new IPCServer(handlers);
 		this.ws = new WSServer(handlers);
 	}
 
-	async start() {
+	async start(): Promise<void> {
 		// Start Transports
 		await this.ipc.start();
 		await this.ws.start();
@@ -33,18 +67,18 @@ export default class RPCServer extends EventEmitter {
 		// Start Process Scanner
 		const noScan =
 			process.argv.includes("--no-process-scanning") ||
-			process.env.ARRPC_NO_PROCESS_SCANNING;
+			process.env["ARRPC_NO_PROCESS_SCANNING"];
 		if (this.detectablePath && !noScan) {
 			this.processServer = new ProcessServer(
 				{
-					message: this.onMessage.bind(this),
+					message: this.onMessage.bind(this) as any,
 				},
 				this.detectablePath,
 			);
 		}
 	}
 
-	onConnection(socket) {
+	onConnection(socket: RPCServerSocket): void {
 		socket.send({
 			cmd: "DISPATCH",
 			data: {
@@ -74,7 +108,7 @@ export default class RPCServer extends EventEmitter {
 		this.emit("connection", socket);
 	}
 
-	onClose(socket) {
+	onClose(socket: RPCServerSocket): void {
 		this.emit("activity", {
 			activity: null,
 			pid: socket.lastPid,
@@ -84,10 +118,13 @@ export default class RPCServer extends EventEmitter {
 		this.emit("close", socket);
 	}
 
-	async onMessage(socket, { cmd, args, nonce }) {
+	async onMessage(
+		socket: RPCServerSocket,
+		{ cmd, args, nonce }: RPCMessage,
+	): Promise<void> {
 		this.emit("message", { socket, cmd, args, nonce });
 
-		const commandHandlers = {
+		const commandHandlers: Record<string, () => void> = {
 			CONNECTIONS_CALLBACK: () => {
 				socket.send?.({ cmd, data: { code: 1000 }, evt: "ERROR", nonce });
 			},
@@ -97,24 +134,28 @@ export default class RPCServer extends EventEmitter {
 
 				if (!activity) {
 					socket.send?.({ cmd, data: null, evt: null, nonce });
-					return this.emit("activity", { activity: null, pid, socketId: sId });
+					return void this.emit("activity", {
+						activity: null,
+						pid,
+						socketId: sId,
+					});
 				}
 
 				const { buttons, timestamps, instance } = activity;
 				socket.lastPid = pid ?? socket.lastPid;
 
-				const metadata = {};
-				const extra = {};
+				const metadata: Record<string, unknown> = {};
+				const extra: Record<string, unknown> = {};
 				if (buttons) {
-					metadata.button_urls = buttons.map((x) => x.url);
-					extra.buttons = buttons.map((x) => x.label);
+					metadata["button_urls"] = buttons.map((x) => x.url);
+					extra["buttons"] = buttons.map((x) => x.label);
 				}
 
 				if (timestamps) {
 					for (const x in timestamps) {
 						// Fix timestamp length if necessary (ms vs s)
-						if (String(Date.now()).length - String(timestamps[x]).length > 2) {
-							timestamps[x] = Math.floor(1000 * timestamps[x]);
+						if (String(Date.now()).length - String(timestamps[x]!).length > 2) {
+							timestamps[x] = Math.floor(1000 * timestamps[x]!);
 						}
 					}
 				}
@@ -150,7 +191,7 @@ export default class RPCServer extends EventEmitter {
 				this.handleInvite(socket, args, nonce, false),
 			INVITE_BROWSER: () => this.handleInvite(socket, args, nonce, true),
 			DEEP_LINK: () => {
-				const deep_callback = (success) => {
+				const deep_callback = (success: boolean) => {
 					socket.send({
 						cmd,
 						data: success ? null : { code: 1001 },
@@ -169,7 +210,12 @@ export default class RPCServer extends EventEmitter {
 		commandHandlers[cmd]?.();
 	}
 
-	handleInvite(socket, args, nonce, isInvite) {
+	handleInvite(
+		socket: RPCServerSocket,
+		args: RPCMessage["args"],
+		nonce: RPCMessage["nonce"],
+		isInvite: boolean,
+	): void {
 		const { code } = args;
 		const callback = (isValid = true) => {
 			socket.send({

@@ -1,27 +1,62 @@
-import { Logger } from "../logger.js";
-import { getDetectableDB } from "./downloader.js";
+import { Logger } from "../logger.ts";
+import { getDetectableDB } from "./downloader.ts";
 const log = new Logger("process", "red").log;
 
 const DEBUG = process.argv.some((arg) => arg === "--debug");
 
-let getProcesses;
+let getProcesses: () => Promise<[number, string, string[], string | undefined][]>;
+
 switch (process.platform) {
 	case "win32":
-		getProcesses = (await import("./native/win32.js")).getProcesses;
+		getProcesses = (await import("./native/win32.ts")).getProcesses;
 		break;
 	case "darwin":
-		getProcesses = (await import("./native/darwin.js")).getProcesses;
+		getProcesses = (await import("./native/darwin.ts")).getProcesses;
 		break;
 	case "linux":
-		getProcesses = (await import("./native/linux.js")).getProcesses;
+		getProcesses = (await import("./native/linux.ts")).getProcesses;
 		break;
 	default:
 		throw new Error("Unsupported platform");
 }
 
+interface ProcessServerHandlers {
+	message: (socket: { socketId: string }, msg: unknown) => void;
+}
+
+interface DetectableGame {
+	e?: {
+		n: string[];
+		a?: string;
+	};
+	i?: string;
+	n?: string;
+	[key: string]: unknown;
+}
+
+interface DetectedGame {
+	id: string;
+	name: string;
+	pid: number;
+}
+
 export default class ProcessServer {
-	constructor(handlers, detectablePath) {
-		if (!getProcesses) return;
+	handlers: ProcessServerHandlers;
+	timestamps: Record<string, number>;
+	names: Record<string, string>;
+	pids: Record<string, number>;
+	detectablePath: string;
+	DetectableDB: DetectableGame[] = [];
+	detectionMap: Map<string, DetectableGame[]> = new Map();
+	_generatePossiblePaths: {
+		(path: string): string[];
+		cache?: Map<string, string[]>;
+	};
+
+	constructor(handlers: ProcessServerHandlers, detectablePath: string) {
+		if (!getProcesses) {
+			throw new Error("Failed to load process scanner");
+		}
 
 		this.handlers = handlers;
 		this.timestamps = {};
@@ -29,10 +64,13 @@ export default class ProcessServer {
 		this.pids = {};
 		this.detectablePath = detectablePath;
 
+		this._generatePossiblePaths = this.generatePossiblePathsImpl.bind(this);
+		this._generatePossiblePaths.cache = new Map();
+
 		void this.init();
 	}
 
-	async init() {
+	async init(): Promise<void> {
 		this.DetectableDB = await getDetectableDB(this.detectablePath);
 		this.detectionMap = new Map();
 		for (const element of this.DetectableDB) {
@@ -42,10 +80,11 @@ export default class ProcessServer {
 					if (!this.detectionMap.has(key)) {
 						this.detectionMap.set(key, []);
 					}
-					this.detectionMap.get(key).push(element);
+					this.detectionMap.get(key)?.push(element);
 				}
 			}
 		}
+		
 		this._generatePossiblePaths.cache = new Map();
 
 		this.scan = this.scan.bind(this);
@@ -55,20 +94,20 @@ export default class ProcessServer {
 		log("started");
 	}
 
-	_generatePossiblePaths(path) {
+	generatePossiblePathsImpl(path: string): string[] {
 		if (!this._generatePossiblePaths.cache)
 			this._generatePossiblePaths.cache = new Map();
 		if (this._generatePossiblePaths.cache.has(path))
-			return this._generatePossiblePaths.cache.get(path);
+			return this._generatePossiblePaths.cache.get(path)!;
 
 		const normalizedPath = path.toLowerCase();
 
 		const splitPath = normalizedPath.replaceAll("\\", "/").split("/");
-		if (/^[a-z]:$/.test(splitPath[0]) || splitPath[0] === "") {
+		if (/^[a-z]:$/.test(splitPath[0]!) || splitPath[0] === "") {
 			splitPath.shift();
 		}
 
-		const variations = [];
+		const variations: string[] = [];
 		const modifiers = ["64", ".x64", "x64", "_64"];
 
 		for (let i = 0; i < splitPath.length || i === 1; i++) {
@@ -88,13 +127,19 @@ export default class ProcessServer {
 
 		if (this._generatePossiblePaths.cache.size > 1000) {
 			const iterator = this._generatePossiblePaths.cache.keys();
-			this._generatePossiblePaths.cache.delete(iterator.next().value);
+			const firstKey = iterator.next().value;
+			if (firstKey) this._generatePossiblePaths.cache.delete(firstKey);
 		}
 
 		return variations;
 	}
 
-	_matchExecutable(executables, possiblePaths, args, cwdPath) {
+	_matchExecutable(
+		executables: DetectableGame["e"],
+		possiblePaths: string[],
+		args: string[] | undefined,
+		cwdPath: string | undefined,
+	): boolean {
 		if (!executables) return false;
 		const argsMatch = !executables.a || args?.includes(executables.a);
 		if (!argsMatch) return false;
@@ -111,33 +156,32 @@ export default class ProcessServer {
 		});
 	}
 
-	async scan() {
+	async scan(): Promise<void> {
 		const startTime = DEBUG ? performance.now() : undefined;
 		let processCount = 0;
 
 		try {
 			const processes = await getProcesses();
 			processCount = processes.length;
-			const detectedGames = new Set();
+			const detectedGames = new Set<DetectedGame>();
 
 			for (const [pid, path, args, _cwdPath = ""] of processes) {
 				if (!path) continue;
-
 				const possiblePaths = this._generatePossiblePaths(path);
 
-				const potentialMatches = new Set();
+				const potentialMatches = new Set<DetectableGame>();
 				for (const possiblePath of possiblePaths) {
 					if (this.detectionMap.has(possiblePath)) {
 						this.detectionMap
 							.get(possiblePath)
-							.forEach((element) => void potentialMatches.add(element));
+							?.forEach((element) => void potentialMatches.add(element));
 					}
 				}
 
 				for (const element of potentialMatches) {
 					try {
 						const { e, i, n } = element;
-						if (this._matchExecutable(e, possiblePaths, args, _cwdPath)) {
+						if (this._matchExecutable(e, possiblePaths, args, _cwdPath) && i && n) {
 							detectedGames.add({ id: i, name: n, pid });
 						}
 					} catch (error) {
@@ -153,17 +197,17 @@ export default class ProcessServer {
 
 			this.handleScanResults(Array.from(detectedGames));
 
-			if (DEBUG)
+			if (DEBUG && startTime !== undefined)
 				log(
 					`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`,
 				);
-		} catch (error) {
+		} catch (error: any) {
 			log("Worker error:", error.message);
 		}
 	}
 
-	handleScanResults(games) {
-		const activeIds = new Set();
+	handleScanResults(games: DetectedGame[]): void {
+		const activeIds = new Set<string>();
 
 		for (const { id, name, pid } of games) {
 			this.names[id] = name;
@@ -198,7 +242,7 @@ export default class ProcessServer {
 		this._cleanupLostGames(activeIds);
 	}
 
-	_cleanupLostGames(activeIds) {
+	_cleanupLostGames(activeIds: Set<string>): void {
 		for (const id in this.timestamps) {
 			if (!activeIds.has(id)) {
 				log("lost game!", this.names[id]);

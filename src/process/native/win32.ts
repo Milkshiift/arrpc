@@ -4,32 +4,32 @@ import koffi from "koffi";
 
 // Load Windows API
 const psapi = koffi.load("psapi.dll");
-const kernel32 = koffi.load("kernel32.dll");
+// const kernel32 = koffi.load("kernel32.dll");
 const ntdll = koffi.load("ntdll.dll");
 
 // Define Alias
-const _DWORD = koffi.alias("DWORD", "uint32_t");
-const _BOOL = koffi.alias("BOOL", "int32_t");
+// const _DWORD = koffi.alias("DWORD", "uint32_t");
+// const _BOOL = koffi.alias("BOOL", "int32_t");
 const HANDLE = koffi.pointer("HANDLE", koffi.opaque());
 
-const UNICODE_STRING = koffi.struct("UNICODE_STRING", {
-	Length: "uint16",
-	MaximumLength: "uint16",
-	Buffer: HANDLE,
-});
+// const UNICODE_STRING = koffi.struct("UNICODE_STRING", {
+// 	Length: "uint16",
+// 	MaximumLength: "uint16",
+// 	Buffer: HANDLE,
+// });
 
-const _SYSTEM_PROCESS_ID_INFORMATION = koffi.struct(
-	"SYSTEM_PROCESS_ID_INFORMATION",
-	{
-		ProcessId: HANDLE,
-		ImageName: UNICODE_STRING,
-	},
-);
+// const _SYSTEM_PROCESS_ID_INFORMATION = koffi.struct(
+// 	"SYSTEM_PROCESS_ID_INFORMATION",
+// 	{
+// 		ProcessId: HANDLE,
+// 		ImageName: UNICODE_STRING,
+// 	},
+// );
 
 const EnumProcesses = psapi.func(
 	"BOOL __stdcall EnumProcesses(_Out_ DWORD *lpidProcess, DWORD cb, _Out_ DWORD *lpcbNeeded)",
 );
-const _GetLastError = kernel32.func("DWORD GetLastError()");
+// const _GetLastError = kernel32.func("DWORD GetLastError()");
 const NtQuerySystemInformation = ntdll.func(
 	"NtQuerySystemInformation",
 	"int32",
@@ -38,10 +38,10 @@ const NtQuerySystemInformation = ntdll.func(
 
 const SystemProcessIdInformation = 88;
 const STATUS_INFO_LENGTH_MISMATCH = 0xc0000004;
-const NT_SUCCESS = (status) => status >= 0;
-const NT_ERROR = (status) => status < 0;
+const NT_SUCCESS = (status: number) => status >= 0;
+const NT_ERROR = (status: number) => status < 0;
 
-const getProcessImageName = (pid) => {
+const getProcessImageName = (pid: number): string | null => {
 	let bufferSize = 1024;
 	let buffer = Buffer.alloc(bufferSize);
 
@@ -80,11 +80,13 @@ const getProcessImageName = (pid) => {
 	}
 };
 
-export const getProcesses = async () => {
+export const getProcesses = async (): Promise<
+	[number, string, string[], undefined][]
+> => {
 	const PROCESS_CAPACITY = 4096;
 	const processIds = new Uint32Array(PROCESS_CAPACITY);
 	const bytesNeeded = new Uint32Array(1);
-	const out = [];
+	const out: [number, string, string[], undefined][] = [];
 
 	const success = EnumProcesses(processIds, processIds.byteLength, bytesNeeded);
 
@@ -92,14 +94,15 @@ export const getProcesses = async () => {
 		return [];
 	}
 
+	if (bytesNeeded[0] === undefined) return [];
 	const numProcesses = bytesNeeded[0] / 4;
 	for (let i = 0; i < numProcesses; ++i) {
 		const pid = processIds[i];
 		if (pid) {
 			let imageName = getProcessImageName(pid);
 			if (imageName != null) {
-				imageName = imageName.split("\x00")[0].trim();
-				out.push([pid, imageName, []]);
+				imageName = imageName.split("\x00")[0]!.trim();
+				out.push([pid, imageName, [], undefined]);
 			}
 		}
 	}

@@ -1,16 +1,25 @@
-import { Logger } from "../logger.js";
+import { Logger } from "../logger.ts";
 const log = new Logger("ipc", "yellow").log;
 
 import { join } from "node:path";
 import { platform, env } from "node:process";
 import { unlinkSync } from "node:fs";
-import { createServer, createConnection } from "node:net";
+import {
+	createServer,
+	createConnection,
+	type Socket,
+	type Server,
+} from "node:net";
 
 const SOCKET_PATH =
 	platform === "win32"
 		? "\\\\?\\pipe\\discord-ipc"
 		: join(
-				env.XDG_RUNTIME_DIR || env.TMPDIR || env.TMP || env.TEMP || "/tmp",
+				env["XDG_RUNTIME_DIR"] ||
+					env["TMPDIR"] ||
+					env["TMP"] ||
+					env["TEMP"] ||
+					"/tmp",
 				"discord-ipc",
 			);
 
@@ -20,7 +29,7 @@ const Types = {
 	CLOSE: 2,
 	PING: 3,
 	PONG: 4,
-};
+} as const;
 
 const CloseCodes = {
 	CLOSE_NORMAL: 1000,
@@ -37,20 +46,27 @@ const ErrorCodes = {
 	INVALID_ENCODING: 4005,
 };
 
-const encode = (type, data) => {
-	data = JSON.stringify(data);
-	const dataSize = Buffer.byteLength(data);
+const encode = (type: number, data: unknown): Buffer => {
+	const stringData = JSON.stringify(data);
+	const dataSize = Buffer.byteLength(stringData);
 	const buf = Buffer.alloc(dataSize + 8);
 	buf.writeInt32LE(type, 0);
 	buf.writeInt32LE(dataSize, 4);
-	buf.write(data, 8, dataSize);
+	buf.write(stringData, 8, dataSize);
 	return buf;
 };
 
-const processSocketReadable = (socket) => {
-	while (true) {
-		const _headerParams = { read: false, type: -1, size: 0 };
+// Extend Socket to include our custom properties
+interface IPCSocket extends Socket {
+	_handshook?: boolean;
+	clientId?: string;
+	_send?: (msg: unknown) => void;
+	send?: (msg: unknown) => void;
+	close?: (code?: number, message?: string) => void;
+}
 
+const processSocketReadable = (socket: IPCSocket): void => {
+	while (true) {
 		if (socket.readableLength < 8) return;
 
 		const header = socket.read(8);
@@ -70,7 +86,7 @@ const processSocketReadable = (socket) => {
 			return;
 		}
 
-		if (type < 0 || type >= Object.keys(Types).length) {
+		if (type < 0 || type >= Object.keys(Types).filter(k => isNaN(Number(k))).length) {
 			log("Invalid IPC packet type", type);
 			socket.destroy();
 			return;
@@ -95,7 +111,7 @@ const processSocketReadable = (socket) => {
 			case Types.HANDSHAKE:
 				if (socket._handshook) {
 					log("Client tried to double handshake");
-					socket.close(CloseCodes.CLOSE_ABNORMAL);
+					socket.close?.(CloseCodes.CLOSE_ABNORMAL);
 					return;
 				}
 				socket._handshook = true;
@@ -104,7 +120,7 @@ const processSocketReadable = (socket) => {
 			case Types.FRAME:
 				if (!socket._handshook) {
 					log("Client sent frame before handshake");
-					socket.close(CloseCodes.CLOSE_ABNORMAL);
+					socket.close?.(CloseCodes.CLOSE_ABNORMAL);
 					return;
 				}
 				socket.emit("request", data);
@@ -117,17 +133,17 @@ const processSocketReadable = (socket) => {
 	}
 };
 
-const getAvailableSocket = async () => {
+const getAvailableSocket = async (): Promise<string> => {
 	for (let i = 0; i < 10; i++) {
 		const path = `${SOCKET_PATH}-${i}`;
 		const socket = createConnection(path);
 
-		const connected = await new Promise((resolve) => {
+		const connected = await new Promise<boolean>((resolve) => {
 			socket.on("connect", () => {
 				socket.end();
 				resolve(true);
 			});
-			socket.on("error", (err) => {
+			socket.on("error", (err: Error & { code?: string }) => {
 				if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
 					if (platform !== "win32") {
 						try {
@@ -147,34 +163,45 @@ const getAvailableSocket = async () => {
 };
 
 export default class IPCServer {
-	constructor(handlers) {
+	handlers: {
+		connection: (socket: IPCSocket) => void;
+		message: (socket: IPCSocket, msg: unknown) => void;
+		close: (socket: IPCSocket) => void;
+	};
+	server: Server | null;
+
+	constructor(handlers: {
+		connection: (socket: IPCSocket) => void;
+		message: (socket: IPCSocket, msg: unknown) => void;
+		close: (socket: IPCSocket) => void;
+	}) {
 		this.handlers = handlers;
 		this.server = null;
 		this.onConnection = this.onConnection.bind(this);
 		this.onMessage = this.onMessage.bind(this);
 	}
 
-	async start() {
+	async start(): Promise<void> {
 		const socketPath = await getAvailableSocket();
 
 		this.server = createServer(this.onConnection);
 		this.server.on("error", (e) => log("server error", e));
 
 		return new Promise((resolve) => {
-			this.server.listen(socketPath, () => {
+			this.server?.listen(socketPath, () => {
 				log("listening at", socketPath);
 				resolve();
 			});
 		});
 	}
 
-	onConnection(socket) {
+	onConnection(socket: IPCSocket): void {
 		log("new connection!");
 
 		socket.on("readable", () => {
 			try {
 				processSocketReadable(socket);
-			} catch (e) {
+			} catch (e: any) {
 				log("error whilst reading", e);
 				socket.end(
 					encode(Types.CLOSE, {
@@ -186,8 +213,8 @@ export default class IPCServer {
 			}
 		});
 
-		socket.once("handshake", (params) => {
-			if (process.env.ARRPC_DEBUG) log("handshake:", params);
+		socket.once("handshake", (params: any) => {
+			if (process.env["ARRPC_DEBUG"]) log("handshake:", params);
 
 			const ver = parseInt(params.v ?? 1, 10);
 			const clientId = params.client_id ?? "";
@@ -217,9 +244,10 @@ export default class IPCServer {
 
 			socket.on("request", this.onMessage.bind(this, socket));
 
+			// @ts-ignore - assigning custom property
 			socket._send = socket.send;
-			socket.send = (msg) => {
-				if (process.env.ARRPC_DEBUG) log("sending", msg);
+			socket.send = (msg: unknown) => {
+				if (process.env["ARRPC_DEBUG"]) log("sending", msg);
 				if (socket.writable) socket.write(encode(Types.FRAME, msg));
 			};
 
@@ -228,8 +256,8 @@ export default class IPCServer {
 		});
 	}
 
-	onMessage(socket, msg) {
-		if (process.env.ARRPC_DEBUG) log("message", msg);
+	onMessage(socket: IPCSocket, msg: unknown): void {
+		if (process.env["ARRPC_DEBUG"]) log("message", msg);
 		this.handlers.message(socket, msg);
 	}
 }

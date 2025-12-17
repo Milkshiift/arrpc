@@ -2,15 +2,18 @@ import * as fs from "node:fs";
 
 const YIELD_AFTER_MS = 10;
 
-const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve));
+const yieldToEventLoop = (): Promise<void> =>
+	new Promise((resolve) => setImmediate(resolve));
 
-export const getProcesses = async () => {
+export const getProcesses = async (): Promise<
+	[number, string, string[], string | undefined][]
+> => {
 	try {
 		const pidEntries = await fs.promises.readdir("/proc", {
 			withFileTypes: true,
 		});
 
-		const processes = [];
+		const processes: [number, string, string[], string | undefined][] = [];
 		let lastYield = performance.now();
 
 		for (const dirent of pidEntries) {
@@ -31,7 +34,7 @@ export const getProcesses = async () => {
 					continue;
 				}
 
-				let cwdPath;
+				let cwdPath: string | undefined;
 				try {
 					cwdPath = fs.readlinkSync(`/proc/${pid}/cwd`);
 				} catch {}
@@ -53,7 +56,7 @@ export const getProcesses = async () => {
 			}
 		}
 		return processes;
-	} catch (error) {
+	} catch (error: any) {
 		console.error("Process discovery error:", error.message);
 		return [];
 	}
