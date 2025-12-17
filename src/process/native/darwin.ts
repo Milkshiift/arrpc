@@ -5,7 +5,7 @@ import type { ProcessEntry } from "../../types.ts";
 
 export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	return new Promise((resolve) => {
-		exec("ps -awwx -o pid=,comm=", (error, stdout, stderr) => {
+		exec("ps -awwx -o pid=,command=", (error, stdout, stderr) => {
 			if (error || stderr) {
 				resolve([]);
 				return;
@@ -18,12 +18,16 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 					if (splitIndex === -1) return null;
 
 					const pidStr = trimmed.substring(0, splitIndex);
-					const comm = trimmed.substring(splitIndex + 1).trim();
+					const fullCmd = trimmed.substring(splitIndex + 1).trim();
 					const pid = parseInt(pidStr, 10);
 
-					if (Number.isNaN(pid) || !comm) return null;
+					if (Number.isNaN(pid) || !fullCmd) return null;
 
-					return [pid, comm, [], undefined] as [
+					const parts = fullCmd.split(" ");
+					const comm = parts[0];
+					const args = parts.slice(1);
+
+					return [pid, comm, args, undefined] as [
 						number,
 						string,
 						string[],

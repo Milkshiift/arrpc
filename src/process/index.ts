@@ -1,5 +1,9 @@
 import { Logger } from "../logger.ts";
-import { getDetectableDB, type DetectableGame, type DetectableExecutable } from "./downloader.ts";
+import {
+	getDetectableDB,
+	type DetectableGame,
+	type DetectableExecutable,
+} from "./downloader.ts";
 import type { ProcessEntry } from "../types.ts";
 
 const log = new Logger("process", "red").log;
@@ -173,7 +177,12 @@ export default class ProcessServer {
 				// Verify the specific matching rules (arguments, strictness)
 				for (const game of potentialMatches) {
 					try {
-						if (game.e && this.matchExecutable(game.e, possiblePaths, args, cwdPath) && game.i && game.n) {
+						if (
+							game.e &&
+							this.matchExecutable(game.e, possiblePaths, args, cwdPath) &&
+							game.i &&
+							game.n
+						) {
 							detectedGames.add({ id: game.i, name: game.n, pid });
 							break;
 						}
@@ -186,7 +195,9 @@ export default class ProcessServer {
 			this.handleScanResults(Array.from(detectedGames));
 
 			if (DEBUG) {
-				log(`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`);
+				log(
+					`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`,
+				);
 			}
 		} catch (error: unknown) {
 			log("Worker error:", error instanceof Error ? error.message : error);

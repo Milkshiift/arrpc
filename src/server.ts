@@ -78,10 +78,10 @@ export default class RPCServer extends EventEmitter {
 
 							const normalizedActivity = activity
 								? {
-									type: 0,
-									flags: 0,
-									...activity,
-								}
+										type: 0,
+										flags: 0,
+										...activity,
+									}
 								: activity;
 
 							this.emit("activity", {
