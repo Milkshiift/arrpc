@@ -6,7 +6,9 @@
   "scripts": {
     "startBun": "bun ./src/index.ts",
     "start": "node ./src/index.ts",
-    "startBundle": "bun build ./src/index.js --target node --format esm --packages bundle --minify --outdir build && node build/index.js"
+    "startBundle": "bun build ./src/index.js --target node --format esm --packages bundle --minify --outdir build && node build/index.js",
+    "test:server": "ARRPC_DETECTABLE_PATH=./test/detectable.json ARRPC_DEBUG=true node ./src/index.ts",
+    "test:client": "bun ./test/client.ts"
   },
   "repository": {
     "type": "git",
