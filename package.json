@@ -25,16 +25,12 @@
     "ws": "^8.18.3"
   },
   "optionalDependencies": {
-    "bufferutil": "^4.0.9",
-    "koffi": "^2.14.1"
+    "bufferutil": "^4.0.9"
   },
   "type": "module",
   "bin": {
-    "arrpc": "src/index.js"
+    "arrpc": "src/index.ts"
   },
-  "trustedDependencies": [
-    "koffi"
-  ],
   "devDependencies": {
     "@biomejs/biome": "2.3.10",
     "@types/bun": "latest",
