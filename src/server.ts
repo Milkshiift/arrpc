@@ -36,6 +36,7 @@ export default class RPCServer extends EventEmitter {
 	processServer?: ProcessServer;
 
 	private socketMap = new WeakMap<TransportSocket, ServerSocket>();
+	private activeSockets = new Set<ServerSocket>();
 
 	constructor(detectablePath: string) {
 		super();
@@ -58,6 +59,13 @@ export default class RPCServer extends EventEmitter {
 		});
 	}
 
+	private isSocketConnectedForId(appId: string): boolean {
+		for (const socket of this.activeSockets) {
+			if (socket.clientId === appId) return true;
+		}
+		return false;
+	}
+
 	async start(): Promise<void> {
 		await this.ipc.start();
 		await this.ws.start();
@@ -71,10 +79,20 @@ export default class RPCServer extends EventEmitter {
 				{
 					message: (socket, msg) => {
 						const payload = msg as RPCMessage;
+
 						this.emit("message", { socket: socket, ...payload });
 
 						if (payload.cmd === "SET_ACTIVITY") {
 							const { activity, pid } = payload.args;
+
+							// If the scanner reports an activity, check if a real client is already connected for this Application ID.
+							// If so, ignore the scanner (Rich Presence > Process Detection).
+							if (
+								activity?.application_id &&
+								this.isSocketConnectedForId(activity.application_id)
+							) {
+								return;
+							}
 
 							const normalizedActivity = activity
 								? {
@@ -119,6 +137,7 @@ export default class RPCServer extends EventEmitter {
 		};
 
 		this.socketMap.set(socket, serverSocket);
+		this.activeSockets.add(serverSocket); // Track for iteration
 		return serverSocket;
 	}
 
@@ -165,6 +184,7 @@ export default class RPCServer extends EventEmitter {
 
 		this.emit("close", socket);
 		this.socketMap.delete(rawSocket);
+		this.activeSockets.delete(socket); // Cleanup
 	}
 
 	async onMessage(
