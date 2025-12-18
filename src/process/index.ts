@@ -1,5 +1,5 @@
 import { Logger } from "../logger.ts";
-import { type DetectableExecutable, type DetectableGame, getDetectableDB, } from "./downloader.ts";
+import { type DetectableGame, getDetectableDB, } from "./downloader.ts";
 import type { ProcessEntry } from "../types.ts";
 
 const log = new Logger("process", "red").log;
@@ -36,6 +36,7 @@ interface DetectedGame {
 	id: string;
 	name: string;
 	pid: number;
+	timestamp: number;
 }
 
 export default class ProcessServer {
@@ -44,13 +45,13 @@ export default class ProcessServer {
 	names: Record<string, string> = {};
 	pids: Record<string, number> = {};
 	detectablePath: string;
-	DetectableDB: DetectableGame[] = [];
 
 	detectionMap: Map<string, DetectableGame[]> = new Map();
 
 	private isScanning = false;
-
-	private pathCache: Map<string, string[]> = new Map();
+	private lastScanTime = 0;
+	private readonly SCAN_INTERVAL = 5000;
+	private readonly MIN_SCAN_INTERVAL = 1000;
 
 	constructor(handlers: ProcessServerHandlers, detectablePath: string) {
 		this.handlers = handlers;
@@ -59,13 +60,19 @@ export default class ProcessServer {
 	}
 
 	async init(): Promise<void> {
-		this.DetectableDB = await getDetectableDB(this.detectablePath);
+		const db = await getDetectableDB(this.detectablePath);
 		this.detectionMap.clear();
 
-		for (const game of this.DetectableDB) {
+		// Pre-process the DB into a Map for O(1) lookups
+		for (const game of db) {
 			if (game.e && Array.isArray(game.e)) {
 				for (const exec of game.e) {
-					const key = exec.n;
+					// Index by the executable name
+					const name = exec.n.toLowerCase();
+
+					// Also index by filename if the entry contains a path (e.g. "bin/game")
+					const key = name.split("/").pop() ?? name;
+
 					const list = this.detectionMap.get(key) ?? [];
 					list.push(game);
 					this.detectionMap.set(key, list);
@@ -73,116 +80,99 @@ export default class ProcessServer {
 			}
 		}
 
-		this.pathCache.clear();
+		log(`indexed ${db.length} games`);
 
 		await this.scan();
-		setInterval(() => void this.scan(), 5000);
+
+		setInterval(() => {
+			const now = Date.now();
+			if (now - this.lastScanTime >= this.MIN_SCAN_INTERVAL) {
+				void this.scan();
+			}
+		}, this.SCAN_INTERVAL);
 
 		log("started");
 	}
 
-	generatePossiblePaths(path: string): string[] {
-		const cached = this.pathCache.get(path);
-		if (cached) return cached;
+	private isValidProcess(pid: number, path: string): boolean {
+		if (pid === 1) return false;
+		if (path.length < 1) return false;
 
-		const normalizedPath = path.toLowerCase();
-		const splitPath = normalizedPath.replaceAll("\\", "/").split("/");
+		// Internal *nix stuff
+		if (path.startsWith("/proc")) return false;
+		if (path.startsWith("/usr/lib/")) return false;
+		if (path.includes("systemd")) return false;
 
-		const variations: string[] = [];
-		const modifiers = ["64", ".x64", "x64", "_64"];
+		// System processes / Wine
+		if (path.startsWith("c:/windows")) return false;
 
-		for (let i = 0; i < splitPath.length; i++) {
-			const basePath = splitPath.slice(-i - 1).join("/");
-			if (!basePath) continue;
+		// CEF / Electron noise
+		if (path.includes("webhelper")) return false;
 
-			variations.push(basePath);
+		if (path.endsWith("/bin/dolphin")) return false; // KDE file manager
 
-			for (const mod of modifiers) {
-				if (basePath.includes(mod)) {
-					variations.push(basePath.replaceAll(mod, ""));
-				}
-			}
-		}
-
-		this.pathCache.set(path, variations);
-
-		// Simple LRU-like eviction
-		if (this.pathCache.size > 1000) {
-			const firstKey = this.pathCache.keys().next().value;
-			if (firstKey) this.pathCache.delete(firstKey);
-		}
-
-		return variations;
+		return true;
 	}
 
-	private matchExecutable(
-		executables: DetectableExecutable[],
-		possiblePaths: string[],
-		args: string[] | undefined,
-		cwdPath: string | undefined,
-	): boolean {
-		if (!executables || !Array.isArray(executables)) return false;
-
-		return executables.some((exec) => {
-			const argsMatch = !exec.a || args?.includes(exec.a);
-			if (!argsMatch) return false;
-
-			const name = exec.n;
-			const isStrict = exec.s === 1;
-
-			if (isStrict) {
-				return name === possiblePaths[0];
-			}
-
-			// Loose match: check variations or partial path matches
-			return possiblePaths.some(
-				(path) =>
-					name === path ||
-					(cwdPath && `${cwdPath}/${path}`.includes(`/${name}`)),
-			);
-		});
+	private stripBitness(name: string): string {
+		return name
+			.replace(/\.x64/g, "")
+			.replace(/_64/g, "")
+			.replace(/x64/g, "")
+			.replace(/64/g, "");
 	}
 
 	async scan(): Promise<void> {
 		if (this.isScanning) return;
 		this.isScanning = true;
+		this.lastScanTime = Date.now();
 
 		const startTime = DEBUG ? performance.now() : 0;
-		let processCount = 0;
+		const detectedGames = new Map<string, DetectedGame>();
 
 		try {
 			const processes = await getProcesses();
-			processCount = processes.length;
 
-			const detectedGames = new Map<string, DetectedGame>();
+			for (const [pid, _path, args, _cwdPath] of processes) {
+				const rawPath = _path.toLowerCase().replaceAll("\\", "/");
+				const cwdPath = (_cwdPath || "").toLowerCase().replaceAll("\\", "/");
 
-			for (const [pid, path, args, _cwdPath] of processes) {
-				if (!path) continue;
-				const possiblePaths = this.generatePossiblePaths(path);
-				const cwdPath = _cwdPath || "";
+				if (!this.isValidProcess(pid, rawPath)) continue;
 
-				const potentialMatches = new Set<DetectableGame>();
+				// 1. Get the filename (e.g. "c:/games/game.exe" -> "game.exe")
+				const filename = rawPath.split("/").pop();
+				if (!filename) continue;
 
-				for (const possiblePath of possiblePaths) {
-					const matches = this.detectionMap.get(possiblePath);
-					if (matches) {
-						for (const match of matches) potentialMatches.add(match);
-					}
-				}
+				// 2. Generate candidates for lookup
+				const candidates = new Set<string>();
 
-				for (const game of potentialMatches) {
-					try {
-						if (
-							game.e &&
-							this.matchExecutable(game.e, possiblePaths, args, cwdPath) &&
-							game.i &&
-							game.n
-						) {
-							detectedGames.set(game.i, { id: game.i, name: game.n, pid });
-							break;
+				// a. Exact filename: "game.exe"
+				candidates.add(filename);
+
+				// b. No extension: "game"
+				const noExt = filename.replace(".exe", "");
+				candidates.add(noExt);
+
+				// c. Strip bitness: "game_64.exe" -> "game.exe"
+				const noBitness = this.stripBitness(filename);
+				candidates.add(noBitness);
+				candidates.add(this.stripBitness(noExt)); // "game_64" -> "game"
+
+				// 3. Check candidates against the map
+				for (const candidate of candidates) {
+					const matches = this.detectionMap.get(candidate);
+					if (!matches) continue;
+
+					for (const game of matches) {
+						if (this.checkGameMatch(game, candidate, filename, rawPath, cwdPath, args)) {
+							// Found a match
+							detectedGames.set(game.i, {
+								id: game.i,
+								name: game.n,
+								pid,
+								timestamp: this.timestamps[game.i] || Date.now()
+							});
 						}
-					} catch (error) {
-						log("Error during matching:", error);
 					}
 				}
 			}
@@ -190,28 +180,78 @@ export default class ProcessServer {
 			this.handleScanResults(Array.from(detectedGames.values()));
 
 			if (DEBUG) {
-				log(
-					`Scan completed in ${(performance.now() - startTime).toFixed(2)}ms, checked ${processCount} processes`,
-				);
+				const timeTaken = (performance.now() - startTime).toFixed(2);
+				log(`scanned ${processes.length} processes in ${timeTaken}ms`);
 			}
-		} catch (error: unknown) {
-			log("Worker error:", error instanceof Error ? error.message : error);
+		} catch (error) {
+			log("Scan error:", error);
 		} finally {
 			this.isScanning = false;
 		}
 	}
 
+	// Logic to verify if a candidate game actually matches the process based on path inclusion, arguments, or strict matching.
+	private checkGameMatch(
+		game: DetectableGame,
+		candidateKey: string, // The key we used to find the game (e.g. "game")
+		filename: string,     // The actual filename (e.g. "game_x64.exe")
+		fullPath: string,     // Full path to executable
+		cwdPath: string,      // Current working directory of process
+		args: string[]        // Process arguments
+	): boolean {
+		if (!game.e) return false;
+
+		return game.e.some((exec) => {
+			// Names are already normalized (lowercased) in the downloader step.
+			const dbExecName = exec.n;
+
+			// --- Filter 1: Arguments ---
+			// If DB requires args, and process args don't contain them, fail.
+			if (exec.a) {
+				const joinedArgs = args.join(" ").toLowerCase();
+				if (!joinedArgs.includes(exec.a.toLowerCase())) return false;
+			}
+
+			// --- Filter 2: Strict Matching ('>' in DB, 's:1' in transformed) ---
+			if (exec.s === 1) {
+				// Strict means the filename must match exactly what's in the DB.
+				return dbExecName === filename;
+			}
+
+			// --- Filter 3: Loose Matching ---
+
+			// a. Exact filename match
+			if (dbExecName === filename) return true;
+
+			// b. Exe-less match
+			if (dbExecName === filename.replace(".exe", "")) return true;
+
+			// c. DB name + .exe match
+			if (dbExecName === `${filename}.exe`) return true;
+
+			// d. Path inclusion
+			// This handles cases where the DB entry is "bin/game" but we detected "game".
+			const combinedPath = `${cwdPath}/${fullPath}`;
+			if (combinedPath.includes(`/${dbExecName}`)) return true;
+
+			// e. Bitness stripped match
+			if (dbExecName === candidateKey) return true;
+
+			return false;
+		});
+	}
+
 	handleScanResults(games: DetectedGame[]): void {
 		const activeIds = new Set<string>();
 
-		for (const { id, name, pid } of games) {
+		for (const { id, name, pid, timestamp } of games) {
 			this.names[id] = name;
 			this.pids[id] = pid;
 			activeIds.add(id);
 
 			if (!this.timestamps[id]) {
 				log("detected game!", name);
-				this.timestamps[id] = Date.now();
+				this.timestamps[id] = timestamp;
 			}
 
 			this.handlers.message(
