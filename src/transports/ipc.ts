@@ -1,13 +1,8 @@
 import { Logger } from "../logger.ts";
 import { join } from "node:path";
-import { platform, env } from "node:process";
+import { env, platform } from "node:process";
 import { unlinkSync } from "node:fs";
-import {
-	createServer,
-	createConnection,
-	type Socket,
-	type Server,
-} from "node:net";
+import { createConnection, createServer, type Server, type Socket, } from "node:net";
 
 const log = new Logger("ipc", "yellow").log;
 
@@ -166,11 +161,22 @@ export default class IPCServer {
 		const socketPath = await getAvailableSocket();
 
 		this.server = createServer(this.onConnection);
-		this.server.on("error", (e) => log("server error", e));
 
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
+			const onStartupError = (e: Error) => {
+				log("server failed to start", e);
+				reject(e);
+			};
+
+			this.server?.on("error", onStartupError);
+
 			this.server?.listen(socketPath, () => {
 				log("listening at", socketPath);
+
+				this.server?.off("error", onStartupError);
+
+				this.server?.on("error", (e) => log("server error", e));
+
 				resolve();
 			});
 		});
