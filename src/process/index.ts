@@ -1,5 +1,5 @@
 import { Logger } from "../logger.ts";
-import { type DetectableGame, getDetectableDB, } from "./downloader.ts";
+import { type DetectableGame, getDetectableDB } from "./downloader.ts";
 import type { ProcessEntry } from "../types.ts";
 
 const log = new Logger("process", "red").log;
@@ -164,13 +164,22 @@ export default class ProcessServer {
 					if (!matches) continue;
 
 					for (const game of matches) {
-						if (this.checkGameMatch(game, candidate, filename, rawPath, cwdPath, args)) {
+						if (
+							this.checkGameMatch(
+								game,
+								candidate,
+								filename,
+								rawPath,
+								cwdPath,
+								args,
+							)
+						) {
 							// Found a match
 							detectedGames.set(game.i, {
 								id: game.i,
 								name: game.n,
 								pid,
-								timestamp: this.timestamps[game.i] || Date.now()
+								timestamp: this.timestamps[game.i] || Date.now(),
 							});
 						}
 					}
@@ -194,10 +203,10 @@ export default class ProcessServer {
 	private checkGameMatch(
 		game: DetectableGame,
 		candidateKey: string, // The key we used to find the game (e.g. "game")
-		filename: string,     // The actual filename (e.g. "game_x64.exe")
-		fullPath: string,     // Full path to executable
-		cwdPath: string,      // Current working directory of process
-		args: string[]        // Process arguments
+		filename: string, // The actual filename (e.g. "game_x64.exe")
+		fullPath: string, // Full path to executable
+		cwdPath: string, // Current working directory of process
+		args: string[], // Process arguments
 	): boolean {
 		if (!game.e) return false;
 
