@@ -1,9 +1,5 @@
 import { Logger } from "../logger.ts";
-import {
-	getDetectableDB,
-	type DetectableGame,
-	type DetectableExecutable,
-} from "./downloader.ts";
+import { type DetectableExecutable, type DetectableGame, getDetectableDB, } from "./downloader.ts";
 import type { ProcessEntry } from "../types.ts";
 
 const log = new Logger("process", "red").log;
@@ -157,7 +153,8 @@ export default class ProcessServer {
 		try {
 			const processes = await getProcesses();
 			processCount = processes.length;
-			const detectedGames = new Set<DetectedGame>();
+
+			const detectedGames = new Map<string, DetectedGame>();
 
 			for (const [pid, path, args, _cwdPath] of processes) {
 				if (!path) continue;
@@ -166,7 +163,6 @@ export default class ProcessServer {
 
 				const potentialMatches = new Set<DetectableGame>();
 
-				// Find all games that *might* be associated with this executable name
 				for (const possiblePath of possiblePaths) {
 					const matches = this.detectionMap.get(possiblePath);
 					if (matches) {
@@ -174,7 +170,6 @@ export default class ProcessServer {
 					}
 				}
 
-				// Verify the specific matching rules (arguments, strictness)
 				for (const game of potentialMatches) {
 					try {
 						if (
@@ -183,7 +178,7 @@ export default class ProcessServer {
 							game.i &&
 							game.n
 						) {
-							detectedGames.add({ id: game.i, name: game.n, pid });
+							detectedGames.set(game.i, { id: game.i, name: game.n, pid });
 							break;
 						}
 					} catch (error) {
@@ -192,7 +187,7 @@ export default class ProcessServer {
 				}
 			}
 
-			this.handleScanResults(Array.from(detectedGames));
+			this.handleScanResults(Array.from(detectedGames.values()));
 
 			if (DEBUG) {
 				log(
@@ -241,7 +236,9 @@ export default class ProcessServer {
 	}
 
 	private cleanupLostGames(activeIds: Set<string>): void {
-		for (const id in this.timestamps) {
+		const currentIds = Object.keys(this.timestamps);
+
+		for (const id of currentIds) {
 			if (!activeIds.has(id)) {
 				log("lost game!", this.names[id]);
 
