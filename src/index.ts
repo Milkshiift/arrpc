@@ -8,7 +8,7 @@ const log = new Logger().log;
 log("arRPC v3.5.0");
 
 try {
-	Bridge.init();
+	if (!process.argv.includes("--no-bridge")) Bridge.init();
 } catch (e) {
 	log("Bridge failed to start", e);
 }

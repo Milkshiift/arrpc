@@ -1,6 +1,6 @@
 import { Logger } from "../logger.ts";
-import { WebSocketServer, type WebSocket } from "ws";
-import { createServer, type Server, type IncomingMessage } from "node:http";
+import { type WebSocket, WebSocketServer } from "ws";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import { parse } from "node:querystring";
 
 const log = new Logger("websocket", "magentaBright").log;
@@ -44,20 +44,28 @@ export default class WSServer {
 			try {
 				await new Promise<void>((resolve, reject) => {
 					const http = createServer();
-					const wss = new WebSocketServer({ server: http });
 
-					wss.on("connection", (ws, req) =>
-						this.onConnection(ws as RPCWebSocket, req),
-					);
-
-					http.on("error", (e: SystemError) => {
-						wss.removeAllListeners();
+					const onError = (e: SystemError) => {
+						http.removeListener("error", onError);
 						reject(e);
-					});
+					};
+
+					http.on("error", onError);
 
 					http.listen(port, "127.0.0.1", () => {
+						http.removeListener("error", onError);
+
 						log("listening on", port);
 						this.http = http;
+
+						const wss = new WebSocketServer({ server: http });
+
+						wss.on("connection", (ws, req) =>
+							this.onConnection(ws as RPCWebSocket, req),
+						);
+
+						wss.on("error", (e) => log("WSS error", e));
+
 						this.wss = wss;
 						resolve();
 					});
