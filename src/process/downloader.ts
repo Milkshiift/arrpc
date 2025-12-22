@@ -46,6 +46,8 @@ export function transformObject(all: RawGameData[]): DetectableGame[] {
 
 			for (const exec of game.executables) {
 				if (!exec.name) continue;
+				// Skip "Last Man Standing" game as it has an overly-generic name and is false-detected
+				if (exec.name === "lms.exe") continue;
 
 				if (exec.os) {
 					const isNative = exec.os === currentPlatform;
