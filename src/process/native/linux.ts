@@ -5,9 +5,11 @@ const YIELD_AFTER_MS = 10;
 const yieldToEventLoop = (): Promise<void> =>
 	new Promise((r) => setImmediate(r));
 
+// Sync fs calls are used because they are significantly faster than async ones.
+// Blocking is fine because arRPC runs as a separate worker in GoofCord.
 export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	try {
-		const pidEntries = await fs.promises.readdir("/proc", {
+		const pidEntries = fs.readdirSync("/proc", {
 			withFileTypes: true,
 		});
 

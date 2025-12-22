@@ -183,6 +183,14 @@ export const getProcesses = async (): Promise<ProcessEntry[]> => {
 	return activePromise;
 };
 
-process.on("exit", () => {
-	psChild?.kill();
-});
+const cleanup = () => {
+	if (psChild) {
+		psChild.kill();
+		psChild = null;
+	}
+};
+
+process.on("exit", cleanup);
+process.on("SIGINT", () => { cleanup(); process.exit(); });
+process.on("SIGTERM", () => { cleanup(); process.exit(); });
+process.on("SIGHUP", () => { cleanup(); process.exit(); });

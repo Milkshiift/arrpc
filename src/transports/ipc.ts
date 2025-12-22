@@ -45,6 +45,8 @@ export interface IPCSocket extends Socket {
 	close: (code?: number, message?: string) => void;
 }
 
+const MAX_IPC_PAYLOAD = 5 * 1024 * 1024;
+
 const encode = (type: number, data: unknown): Buffer => {
 	const stringData = JSON.stringify(data);
 	const dataSize = Buffer.byteLength(stringData);
@@ -64,6 +66,12 @@ const processSocketReadable = (socket: Socket): void => {
 
 		const type = header.readInt32LE(0);
 		const dataSize = header.readInt32LE(4);
+
+		if (dataSize < 0 || dataSize > MAX_IPC_PAYLOAD) {
+			log("Refusing oversized or invalid IPC payload", dataSize);
+			socket.destroy();
+			return;
+		}
 
 		if (socket.readableLength < dataSize) {
 			socket.unshift(header);
